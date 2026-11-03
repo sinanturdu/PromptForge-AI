@@ -6,3 +6,13 @@
   }
 }
 
+
+@layer base {
+  body { margin: 0; min-width: 320px; }
+  textarea { resize: vertical; }
+  :focus-visible { outline: 2px solid var(--color-indigo-400); outline-offset: 3px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

@@ -1,6 +1,6 @@
 # PromptForge AI — Teknik Mimari Dokümantasyonu (v1.2)
 
-> **Uygulama Durumu Bildirimi (Milestone 4B-1):** Bu doküman, PromptForge AI platformunun onaylanmış hedef mimarisini ve aşamalı yol haritasını tanımlar. Şu anki depoda **Milestone 2A temel altyapısı**, **Milestone 3A asenkron veritabanı bağlantı temeli**, **Milestone 3B ilk dört ORM modeli ile Alembic göç sistemi** (`0001_initial_schema`), **Milestone 3C-1 Prompt Yönetimi REST API**, **Milestone 3C-2 yapılandırılmış JSON loglama, `X-Request-ID`, HTTP gövde boyutu sınırı ve RFC 9457 Problem Details hata yönetimi**, **Milestone 4A işlevsel Türkçe prompt gönderim arayüzü, Problem Details uyumlu API istemcisi ve UUID tabanlı detay sayfası** ve **Milestone 4B-1 sunucu taraflı sayfalamalı prompt geçmişi arayüzü (`/history`), URL `?page=` durum yönetimi ve mobil uyumlu üst gezinme çubuğu** uygulanmıştır. Geçmiş listesinde gelişmiş arama ve filtreleme (**Milestone 4B-2**), değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues` — Milestone 7), LLM sağlayıcı entegrasyonu, AI ajanları, `CanonicalPrompt` derleyicisi, değerlendirme motoru, token analizi ve sesli girdi (Speech-to-Text) bileşenleri **henüz kodlanmamıştır**.
+> **Uygulama Durumu Bildirimi (Milestone 4B-2):** Bu doküman, PromptForge AI platformunun onaylanmış hedef mimarisini ve aşamalı yol haritasını tanımlar. Şu anki depoda **Milestone 2A temel altyapısı**, **Milestone 3A asenkron veritabanı bağlantı temeli**, **Milestone 3B ilk dört ORM modeli ile Alembic göç sistemi** (`0001_initial_schema`), **Milestone 3C-1 Prompt Yönetimi REST API**, **Milestone 3C-2 yapılandırılmış JSON loglama, `X-Request-ID`, HTTP gövde boyutu sınırı ve RFC 9457 Problem Details hata yönetimi**, **Milestone 4A işlevsel Türkçe prompt gönderim arayüzü, Problem Details uyumlu API istemcisi ve UUID tabanlı detay sayfası** ve **Milestone 4B-1 sunucu taraflı sayfalamalı prompt geçmişi arayüzü (`/history`), URL `?page=` durum yönetimi ve mobil uyumlu üst gezinme çubuğu** uygulanmıştır. **Milestone 4B-2** kapsamında sunucu taraflı anahtar kelime araması (`q`), hedef AI ailesi filtreleme (`target_mode`) ve URL durum eşgüdümü de uygulanmıştır. Değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues` — Milestone 7), LLM sağlayıcı entegrasyonu, AI ajanları, `CanonicalPrompt` derleyicisi, değerlendirme motoru, token analizi ve sesli girdi (Speech-to-Text) bileşenleri **henüz kodlanmamıştır**.
 
 ---
 
@@ -19,7 +19,7 @@ Platform basit bir sohbet arayüzü değildir; temel ilkeleri şunlardır:
 
 ## 2. Kapsam ve Uygulama Durumu
 
-### 2.1 Mevcut Durum — Milestone 2A, 3A, 3B, 3C-1, 3C-2, 4A & 4B-1 (Uygulandı)
+### 2.1 Mevcut Durum — Milestone 2A, 3A, 3B, 3C-1, 3C-2, 4A, 4B-1 & 4B-2 (Uygulandı)
 
 - `backend/` ve `frontend/` ayrımına sahip monorepo yapısı
 - Python 3.12, `uv`, FastAPI uygulama fabrikası (`create_app`), `lifespan` kaynak yönetimi ve `GET /api/v1/health` uç noktası
@@ -29,7 +29,7 @@ Platform basit bir sohbet arayüzü değildir; temel ilkeleri şunlardır:
 - Yapılandırılmış UTC JSON loglama (`app/core/logging.py`), sunucu taraflı `X-Request-ID` izleme ve `MAX_REQUEST_BODY_BYTES` HTTP gövde boyutu denetimi (`app/api/middleware.py`) ile merkezi RFC 9457 Problem Details (`application/problem+json`) hata yönetimi (`app/core/errors.py`, `app/api/error_handlers.py`)
 - Otomatik OpenAPI şeması (`/docs`, `/redoc`, `/api/v1/openapi.json` — `ProblemDetails` şeması ile uyumlu)
 - Ruff, `mypy --strict` ve `pytest` doğrulama altyapısı
-- React 19, Vite 8 (`/api` geliştirme proxy'si ile), TypeScript (`strict`), Tailwind CSS v4, React Router, TanStack Query, ESLint, Vitest ve MSW ile geliştirilmiş Türkçe prompt gönderim formu (`/`), URL tabanlı sunucu taraflı sayfalamalı salt okunur prompt geçmişi sayfası (`/history`), mobil ve masaüstü uyumlu üst gezinme çubuğu (`Yeni Prompt`, `Prompt Geçmişi`), RFC 9457 Problem Details uyumlu tipli API istemcisi ve UUID tabanlı prompt detay sayfası (`/prompt-requests/:id`) (sahte AI işlevi içermez)
+- React 19, Vite 8 (`/api` geliştirme proxy'si ile), TypeScript (`strict`), Tailwind CSS v4, React Router, TanStack Query, ESLint, Vitest ve MSW ile geliştirilmiş Türkçe prompt gönderim formu (`/`), URL tabanlı sunucu taraflı sayfalama, anahtar kelime araması (`q`) ve hedef AI ailesi filtresi (`target_mode`) içeren salt okunur prompt geçmişi sayfası (`/history`), mobil ve masaüstü uyumlu üst gezinme çubuğu (`Yeni Prompt`, `Prompt Geçmişi`), RFC 9457 Problem Details uyumlu tipli API istemcisi ve UUID tabanlı prompt detay sayfası (`/prompt-requests/:id`) (sahte AI işlevi içermez)
 - GitHub Actions CI iş akışı (`.github/workflows/ci.yml`)
 
 ### 2.2 Planlanan İlk MVP Kapsamı (Milestone 3 – Milestone 9)
@@ -572,7 +572,7 @@ flowchart LR
 | **M3C-2** | Yapılandırılmış JSON loglama, `X-Request-ID` ara katmanı, HTTP istek gövde boyutu sınırı ve merkezi RFC 9457 Problem Details hata yönetimi | **Tamamlandı** |
 | **M4A** | React Router, TanStack Query, Problem Details uyumlu API istemcisi, Türkçe prompt gönderim formu ve UUID tabanlı detay sayfası | **Tamamlandı** |
 | **M4B-1** | Kaydedilen prompt istekleri için sunucu taraflı sayfalamalı geçmiş arayüzü (`/history`), URL `?page=` durumu ve üst gezinme çubuğu | **Tamamlandı** |
-| **M4B-2** | Prompt geçmişi için gelişmiş arama ve filtreleme kontrolleri | Planlandı |
+| **M4B-2** | Sunucu taraflı anahtar kelime araması, hedef AI ailesi filtreleme ve URL durum eşgüdümü | **Tamamlandı** |
 | **M5** | `LLMProvider` protokolü, `LLMGateway`, `FakeLLMProvider` ve ilk gerçek LLM sağlayıcı adaptörü | Planlandı |
 | **M6** | `PromptEngineerAgent`, `CanonicalPrompt` ara temsili ve `GenericPromptRenderer` | Planlandı |
 | **M7** | Bağımsız `PromptCriticAgent`, rubric v1 ve deterministik `ScoringEngine` | Planlandı |

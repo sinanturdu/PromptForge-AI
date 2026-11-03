@@ -2,7 +2,7 @@
 
 React 19, TypeScript (`strict`), Vite 8, Tailwind CSS v4, React Router ve TanStack Query ile geliştirilmiş kullanıcı arayüzü. Genel sistem mimarisi için bkz. [`../docs/architecture.md`](../docs/architecture.md).
 
-## Mevcut Durum (Milestone 4B-1 — Uygulandı)
+## Mevcut Durum (Milestone 4B-1 ve 4B-2 — Uygulandı; 4C-1 — UI/UX İyileştirmeleri)
 
 - **Özellik tabanlı (feature-based) mimari:** `src/app/`, `src/pages/`, `src/features/prompt-requests/`, `src/components/` ve `src/lib/` katman ayrımı
 - **Duyarlı (Responsive) Üst Gezinme Çubuğu (`AppHeader`):** Masaüstü, tablet ve mobil ekranlarda gizlenmeden erişilebilen, klavye uyumlu ve aktif rotayı vurgulayan `Yeni Prompt` (`/`) ve `Prompt Geçmişi` (`/history`) bağlantıları
@@ -11,12 +11,14 @@ React 19, TypeScript (`strict`), Vite 8, Tailwind CSS v4, React Router ve TanSta
 - **Gerçek Backend Entegrasyonu ve Önbellek Eşgüdümü:** `POST /api/v1/prompt-requests` ile kalıcı kayıt oluşturma (başarılı kayıtta geçmiş listesi TanStack Query önbelleğini otomatik geçersiz kılma), `GET /api/v1/prompt-requests` ile sayfalı listeleme ve `GET /api/v1/prompt-requests/{id}` ile UUID üzerinden detay sorgulama
 - **Prompt İsteği Detay Sayfası (`/prompt-requests/:id`):** Doğrudan backend üzerinden veri yükleme (tarayıcı sayfa yenileme / doğrudan bağlantı desteği), gelinen geçmiş sayfasına (`← Prompt Geçmişine Dön`) veya yeni prompt sayfasına dönüş bağlantıları
 - **Merkezi Tipli API İstemcisi (`src/lib/api-client.ts`):** RFC 9457 `application/problem+json` ayrıştırma, alan bazlı `422` doğrulama hatalarını gösterme, sorun giderme için `X-Request-ID` başlığını koruma ve güvenli Türkçe kullanıcı geri bildirimi
-- **Otomatik Doğrulama Altyapısı:** ESLint, TypeScript `strict`, Vitest + React Testing Library + MSW test paketi (28 otomatik test)
+- **Otomatik Doğrulama Altyapısı:** ESLint, TypeScript `strict`, Vitest + React Testing Library + MSW test paketi (38 otomatik test)
 
 > **Önemli Not (Mevcut Sınırlamalar):**
 > - **AI prompt optimizasyonu henüz aktif değildir.** Kaydedilen hedef model ve akıl yürütme tercihleri gelecekteki derleme/değerlendirme aşamaları için saklanır; herhangi bir LLM sağlayıcısı çalıştırılmaz, otomatik prompt üretilmez ve değerlendirme puanı hesaplanmaz (Milestone 5–8.6 kapsamında eklenecektir).
 > - **Salt okunur geçmiş:** Bu aşamada geçmiş kayıtları üzerinde silme, düzenleme, çoğaltma veya arşivleme işlemleri bulunmaz.
-> - **Gelişmiş arama ve filtreleme** özellikleri henüz uygulanmamıştır; **Milestone 4B-2** kapsamında planlanmıştır.
+> - **Milestone 4B-2 tamamlandı:** Sunucu taraflı anahtar kelime araması (`q`, yaklaşık 350 ms debounce), hedef AI ailesi filtresi (`target_mode`) ve sayfalama durumu URL ile eşgüdümlüdür; detaydan dönüşte korunur.
+
+**Milestone 4C-1:** Yeni prompt sayfası kayıt odaklı sadeleştirildi; mimari önizlemeler sayfa bileşiminden çıkarıldı (kaynak dosyaları korunur). Gezinme, form, klavye odağı ve mobil yerleşim iyileştirildi. API sözleşmeleri ve mevcut varsayılanlar değişmedi.
 
 ---
 
@@ -87,7 +89,9 @@ Tarayıcıda `http://127.0.0.1:5173` adresini açarak uygulamayı kullanabilirsi
 3. Sunucu `201 Created` döndüğünde geçmiş listesi önbelleği (`['prompt-requests', 'list']`) geçersiz kılınır; uygulama `/prompt-requests/{id}` detay sayfasına yönlenir ve kaydı `GET /api/v1/prompt-requests/{id}` üzerinden yükler.
 4. Hata durumunda (`422`, `413`, `500` veya ağ hatası) kullanıcının yazdığı metin korunur, RFC 9457 Problem Details yanıtı ayrıştırılarak anlaşılır Türkçe geri bildirim ve `X-Request-ID` izleme kodu gösterilir.
 
-### 2. Prompt Geçmişi, Sayfalama ve URL Durumu (`/history`)
+### 2. Prompt Geçmişi, Arama, Filtreleme ve URL Durumu (`/history`)
+
+- **Arama ve filtreleme:** `q` anahtar kelimesi ve `target_mode` filtresi sunucuda uygulanır. Değişiklikler sayfayı 1’e döndürür; URL, yenileme ve Geri/İleri gezinmesiyle eşgüdümlüdür. Detaydan dönüş, sayfa ile birlikte etkin filtreleri korur.
 
 - **Sunucu taraflı sayfalama:** Varsayılan olarak `page = 1` ve `page_size = 10` parametreleriyle `GET /api/v1/prompt-requests?page=1&page_size=10` çağrılır; tüm veri kümesi tarayıcı belleğine yüklenmez. Toplam sayfa sayısı `Math.ceil(total / page_size)` ile hesaplanır (`total = 0` durumunda yanıltıcı `"Sayfa 1 / 0"` gösterilmez).
 - **URL tabanlı sayfa durumu (`/history?page=N`):** Seçili sayfa numarası React Router arama parametrelerinde tutulur; tarayıcı yenilendiğinde (`F5`) ve Geri / İleri geçmiş gezinmesinde korunur. Negatif, sıfır veya sayısal olmayan `page` değerleri backend'e geçersiz API isteği göndermeden güvenli biçimde 1. sayfaya (`replace: true`) normalize edilir; veri sayısını aşan sayfa numaraları son geçerli sayfaya yönlendirilir.
