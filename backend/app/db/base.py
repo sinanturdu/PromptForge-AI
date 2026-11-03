@@ -61,4 +61,3 @@ class Base(DeclarativeBase):
     """Declarative base for all PromptForge AI ORM models."""
 
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
-

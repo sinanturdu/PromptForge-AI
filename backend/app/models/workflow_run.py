@@ -123,4 +123,3 @@ class WorkflowRun(Base):
         order_by="AgentRun.started_at",
         passive_deletes=True,
     )
-

@@ -86,4 +86,3 @@ class PromptRequest(Base):
         order_by="PromptVersion.version_number",
         passive_deletes=True,
     )
-
