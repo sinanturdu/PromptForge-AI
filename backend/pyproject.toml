@@ -5,7 +5,10 @@ description = "PromptForge AI backend - FastAPI modular monolith."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "aiosqlite>=0.20",
     "fastapi>=0.115",
+    "pydantic-settings>=2.6",
+    "sqlalchemy[asyncio]>=2.0,<3.0",
     "uvicorn>=0.32",
 ]
 

@@ -1,6 +1,6 @@
 # PromptForge AI — Teknik Mimari Dokümantasyonu (v1.2)
 
-> **Uygulama Durumu Bildirimi (Milestone 2A):** Bu doküman, PromptForge AI platformunun onaylanmış hedef mimarisini ve aşamalı yol haritasını tanımlar. Şu anki depoda **yalnızca Milestone 2A temel altyapısı** (monorepo düzeni, FastAPI `/api/v1/health` servisi, React + Vite + TypeScript + Tailwind CSS başlangıç arayüzü, test/lint/CI yapılandırması) uygulanmıştır. Veritabanı katmanı, LLM sağlayıcı entegrasyonu, AI ajanları, `CanonicalPrompt` derleyicisi, değerlendirme motoru, token analizi ve sesli girdi (Speech-to-Text) bileşenleri **henüz kodlanmamıştır** ve ilgili milestone'larda eklenecektir.
+> **Uygulama Durumu Bildirimi (Milestone 3A):** Bu doküman, PromptForge AI platformunun onaylanmış hedef mimarisini ve aşamalı yol haritasını tanımlar. Şu anki depoda **Milestone 2A temel altyapısı** ve **Milestone 3A asenkron veritabanı bağlantı temeli** (`pydantic-settings`, SQLAlchemy 2.0 Async motoru, `aiosqlite` oturum yönetimi ve SQLite PRAGMA/WAL yapılandırması) uygulanmıştır. Uygulama tabloları ve Alembic göçleri (Milestone 3B), servis/depo katmanı ve hata/loglama altyapısı (Milestone 3C), LLM sağlayıcı entegrasyonu, AI ajanları, `CanonicalPrompt` derleyicisi, değerlendirme motoru, token analizi ve sesli girdi (Speech-to-Text) bileşenleri **henüz kodlanmamıştır**.
 
 ---
 
@@ -19,10 +19,11 @@ Platform basit bir sohbet arayüzü değildir; temel ilkeleri şunlardır:
 
 ## 2. Kapsam ve Uygulama Durumu
 
-### 2.1 Mevcut Durum — Milestone 2A (Uygulandı)
+### 2.1 Mevcut Durum — Milestone 2A & Milestone 3A (Uygulandı)
 
 - `backend/` ve `frontend/` ayrımına sahip monorepo yapısı
-- Python 3.12, `uv`, FastAPI uygulama fabrikası (`create_app`) ve `GET /api/v1/health` uç noktası
+- Python 3.12, `uv`, FastAPI uygulama fabrikası (`create_app`), `lifespan` kaynak yönetimi ve `GET /api/v1/health` uç noktası
+- `pydantic-settings` ortam yapılandırması (`DATABASE_URL`, varsayılan `backend/data/promptforge.db`) ve SQLAlchemy 2.0 Async + `aiosqlite` oturum altyapısı (`DatabaseSessionManager`, `get_db_session`, yabancı anahtar kısıtları ve dosya tabanlı SQLite için WAL modu)
 - Otomatik OpenAPI şeması (`/docs`, `/redoc`, `/api/v1/openapi.json`)
 - Ruff, `mypy --strict` ve `pytest` doğrulama altyapısı
 - React 19, Vite 8, TypeScript (`strict`), Tailwind CSS v4 (`@tailwindcss/vite`), ESLint ve Vitest ile koyu temalı, duyarlı başlangıç arayüzü (sahte AI işlevi içermez)
@@ -63,7 +64,7 @@ Platform basit bir sohbet arayüzü değildir; temel ilkeleri şunlardır:
 | **Frontend** | React 19, Vite 8, TypeScript (`strict`), Tailwind CSS v4 | M2A'da kuruldu | Hızlı geliştirme döngüsü, güçlü tip güvenliği, resmi Vite eklentisiyle sade CSS yapılandırması |
 | **Frontend Veri & Durum** | TanStack Query (M4), HTTP Polling | Planlandı (M4+) | Sunucu durumu önbellekleme ve 2 sn aralıklı polling için ek altyapı gerektirmez |
 | **Backend** | Python 3.12, FastAPI, Pydantic v2, `uv` | M2A'da kuruldu | Async I/O uyumu, katı veri şeması doğrulaması, hızlı ve kilit dosyalı (`uv.lock`) bağımlılık yönetimi |
-| **Veritabanı** | SQLite (MVP) → PostgreSQL (Gelecek), SQLAlchemy 2.0 Async + Alembic | Planlandı (M3) | Yerel MVP'de sıfır kurulum yükü; lehçeden bağımsız tiplerle PostgreSQL'e doğrudan taşınabilirlik |
+| **Veritabanı** | SQLite (MVP) → PostgreSQL (Gelecek), SQLAlchemy 2.0 Async + Alembic | M3A bağlantı temeli kuruldu; şema ve Alembic planlandı (M3B) | Yerel MVP'de sıfır kurulum yükü; lehçeden bağımsız tiplerle PostgreSQL'e doğrudan taşınabilirlik |
 | **LLM Katmanı** | Sağlayıcıdan bağımsız `LLMProvider` protokolü + `FakeLLMProvider` + 1 gerçek sağlayıcı | Planlandı (M5) | Ağır orkestrasyon çerçeveleri olmadan deterministik test edilebilirlik ve model esnekliği |
 | **Kalite & CI** | Ruff, mypy (`strict`), pytest, ESLint, Vitest, GitHub Actions | M2A'da kuruldu | Her değişiklikte otomatik statik analiz ve birim testi güvencesi |
 
@@ -331,9 +332,9 @@ stateDiagram-v2
 
 ---
 
-## 8. Planlanan Veritabanı Şeması (Milestone 3 – 8.6)
+## 8. Planlanan Veritabanı Şeması (Milestone 3B – 8.6)
 
-Veritabanı katmanı M2A'da henüz kurulmamıştır. M3'ten itibaren oluşturulacak genişletilebilir şema aşağıdaki varlıkları içerir:
+Asenkron bağlantı ve oturum altyapısı (`app/db/session.py`) M3A'da kurulmuştur; ancak uygulama tabloları ve Alembic göçleri henüz oluşturulmamıştır. M3B'den itibaren oluşturulacak genişletilebilir şema aşağıdaki varlıkları içerir:
 
 ```mermaid
 erDiagram
@@ -528,8 +529,10 @@ flowchart LR
 | Milestone | Kapsam Özeti | Durum |
 |---|---|---|
 | **M1** | Mimari tasarım ve kararların onaylanması | Tamamlandı |
-| **M2A** | Monorepo iskeleti, FastAPI `/api/v1/health`, React + Tailwind başlangıç kabuğu, test/lint/CI, mimari ve ADR dokümanları | **Tamamlandı** |
-| **M3** | Yapılandırma (`pydantic-settings`), JSON loglama, hata yönetimi, SQLite + SQLAlchemy Async + Alembic temel şeması | Planlandı |
+| **M2A** | Monorepo iskeleti, FastAPI `/api/v1/health`, React + Tailwind başlangıç kabuğu, test/lint/CI, mimari ve ADR dokümanları | Tamamlandı |
+| **M3A** | `pydantic-settings` ortam yapılandırması, SQLite (`backend/data/promptforge.db`) + SQLAlchemy 2.0 Async motoru, oturum yaşam döngüsü ve PostgreSQL uyumlu bağlantı katmanı | **Tamamlandı** |
+| **M3B** | ORM temel modelleri ve Alembic göç (migration) altyapısı | Planlandı |
+| **M3C** | Yapılandırılmış JSON loglama, Problem Details hata yönetimi ve temel CRUD servis/uç noktaları | Planlandı |
 | **M4** | Frontend yönlendirme, API istemcisi, TanStack Query ve prompt gönderim formu | Planlandı |
 | **M5** | `LLMProvider` protokolü, `LLMGateway`, `FakeLLMProvider` ve ilk gerçek LLM sağlayıcı adaptörü | Planlandı |
 | **M6** | `PromptEngineerAgent`, `CanonicalPrompt` ara temsili ve `GenericPromptRenderer` | Planlandı |

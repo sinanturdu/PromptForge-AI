@@ -1,6 +1,6 @@
 # ADR-009: SQLite MVP Şeması ve PostgreSQL Taşınabilirliği
 
-- **Durum:** Onaylandı (Planlanan uygulama: Milestone 3)
+- **Durum:** Onaylandı (M3A bağlantı ve oturum temeli uygulandı; M3B ORM modelleri ve Alembic göçleri planlandı)
 
 ## Bağlam
 
