@@ -1,6 +1,6 @@
 # PromptForge AI — Teknik Mimari Dokümantasyonu (v1.2)
 
-> **Uygulama Durumu Bildirimi (Milestone 3A):** Bu doküman, PromptForge AI platformunun onaylanmış hedef mimarisini ve aşamalı yol haritasını tanımlar. Şu anki depoda **Milestone 2A temel altyapısı** ve **Milestone 3A asenkron veritabanı bağlantı temeli** (`pydantic-settings`, SQLAlchemy 2.0 Async motoru, `aiosqlite` oturum yönetimi ve SQLite PRAGMA/WAL yapılandırması) uygulanmıştır. Uygulama tabloları ve Alembic göçleri (Milestone 3B), servis/depo katmanı ve hata/loglama altyapısı (Milestone 3C), LLM sağlayıcı entegrasyonu, AI ajanları, `CanonicalPrompt` derleyicisi, değerlendirme motoru, token analizi ve sesli girdi (Speech-to-Text) bileşenleri **henüz kodlanmamıştır**.
+> **Uygulama Durumu Bildirimi (Milestone 3B):** Bu doküman, PromptForge AI platformunun onaylanmış hedef mimarisini ve aşamalı yol haritasını tanımlar. Şu anki depoda **Milestone 2A temel altyapısı**, **Milestone 3A asenkron veritabanı bağlantı temeli** (`pydantic-settings`, SQLAlchemy 2.0 Async motoru, `aiosqlite` oturum yönetimi, SQLite PRAGMA/WAL) ve **Milestone 3B ORM modelleri ile Alembic göç sistemi** (`prompt_requests`, `workflow_runs`, `prompt_versions`, `agent_runs` tabloları ve `0001_initial_schema` revizyonu) uygulanmıştır. Hata/loglama ve servis/depo katmanı (Milestone 3C), değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues` — Milestone 7), LLM sağlayıcı entegrasyonu, AI ajanları, `CanonicalPrompt` derleyicisi, değerlendirme motoru, token analizi ve sesli girdi (Speech-to-Text) bileşenleri **henüz kodlanmamıştır**.
 
 ---
 
@@ -19,11 +19,12 @@ Platform basit bir sohbet arayüzü değildir; temel ilkeleri şunlardır:
 
 ## 2. Kapsam ve Uygulama Durumu
 
-### 2.1 Mevcut Durum — Milestone 2A & Milestone 3A (Uygulandı)
+### 2.1 Mevcut Durum — Milestone 2A, 3A & 3B (Uygulandı)
 
 - `backend/` ve `frontend/` ayrımına sahip monorepo yapısı
 - Python 3.12, `uv`, FastAPI uygulama fabrikası (`create_app`), `lifespan` kaynak yönetimi ve `GET /api/v1/health` uç noktası
 - `pydantic-settings` ortam yapılandırması (`DATABASE_URL`, varsayılan `backend/data/promptforge.db`) ve SQLAlchemy 2.0 Async + `aiosqlite` oturum altyapısı (`DatabaseSessionManager`, `get_db_session`, yabancı anahtar kısıtları ve dosya tabanlı SQLite için WAL modu)
+- SQLAlchemy 2.0 `DeclarativeBase` (`app/db/base.py`), ilk dört ORM modeli (`PromptRequest`, `WorkflowRun`, `PromptVersion`, `AgentRun`) ve CWD'den bağımsız asenkron Alembic göç sistemi (`0001_initial_schema`)
 - Otomatik OpenAPI şeması (`/docs`, `/redoc`, `/api/v1/openapi.json`)
 - Ruff, `mypy --strict` ve `pytest` doğrulama altyapısı
 - React 19, Vite 8, TypeScript (`strict`), Tailwind CSS v4 (`@tailwindcss/vite`), ESLint ve Vitest ile koyu temalı, duyarlı başlangıç arayüzü (sahte AI işlevi içermez)
@@ -64,7 +65,7 @@ Platform basit bir sohbet arayüzü değildir; temel ilkeleri şunlardır:
 | **Frontend** | React 19, Vite 8, TypeScript (`strict`), Tailwind CSS v4 | M2A'da kuruldu | Hızlı geliştirme döngüsü, güçlü tip güvenliği, resmi Vite eklentisiyle sade CSS yapılandırması |
 | **Frontend Veri & Durum** | TanStack Query (M4), HTTP Polling | Planlandı (M4+) | Sunucu durumu önbellekleme ve 2 sn aralıklı polling için ek altyapı gerektirmez |
 | **Backend** | Python 3.12, FastAPI, Pydantic v2, `uv` | M2A'da kuruldu | Async I/O uyumu, katı veri şeması doğrulaması, hızlı ve kilit dosyalı (`uv.lock`) bağımlılık yönetimi |
-| **Veritabanı** | SQLite (MVP) → PostgreSQL (Gelecek), SQLAlchemy 2.0 Async + Alembic | M3A bağlantı temeli kuruldu; şema ve Alembic planlandı (M3B) | Yerel MVP'de sıfır kurulum yükü; lehçeden bağımsız tiplerle PostgreSQL'e doğrudan taşınabilirlik |
+| **Veritabanı** | SQLite (MVP) → PostgreSQL (Gelecek), SQLAlchemy 2.0 Async + Alembic | M3A bağlantı temeli ve M3B ilk 4 ORM modeli + Alembic göç sistemi kuruldu; değerlendirme tabloları M7'de eklenecek | Yerel MVP'de sıfır kurulum yükü; lehçeden bağımsız tiplerle PostgreSQL'e doğrudan taşınabilirlik |
 | **LLM Katmanı** | Sağlayıcıdan bağımsız `LLMProvider` protokolü + `FakeLLMProvider` + 1 gerçek sağlayıcı | Planlandı (M5) | Ağır orkestrasyon çerçeveleri olmadan deterministik test edilebilirlik ve model esnekliği |
 | **Kalite & CI** | Ruff, mypy (`strict`), pytest, ESLint, Vitest, GitHub Actions | M2A'da kuruldu | Her değişiklikte otomatik statik analiz ve birim testi güvencesi |
 
@@ -104,10 +105,10 @@ flowchart TD
             FAKE["FakeLLMProvider (deterministik testler)"]
         end
 
-        REPO["SQLAlchemy Async Repositories (Planlandi: M3)"]
+        REPO["SQLAlchemy Async Repositories (Planlandi: M3C)"]
     end
 
-    DB[("SQLite - MVP (Planlandi: M3)")]
+    DB[("SQLite - MVP (M3A Baglanti + M3B Ilk 4 Tablo ve Alembic Uygulandi)")]
     PG[("PostgreSQL (Post-MVP)")]
     EXT["Harici LLM API"]
 
@@ -332,9 +333,20 @@ stateDiagram-v2
 
 ---
 
-## 8. Planlanan Veritabanı Şeması (Milestone 3B – 8.6)
+## 8. Veritabanı Şeması ve Göç Mimarisi (Milestone 3B – 8.6)
 
-Asenkron bağlantı ve oturum altyapısı (`app/db/session.py`) M3A'da kurulmuştur; ancak uygulama tabloları ve Alembic göçleri henüz oluşturulmamıştır. M3B'den itibaren oluşturulacak genişletilebilir şema aşağıdaki varlıkları içerir:
+Asenkron bağlantı ve oturum altyapısı (`app/db/session.py`) M3A'da, `DeclarativeBase` (`app/db/base.py`), Alembic göç sistemi (`alembic.ini`, `migrations/`, revizyon `0001_initial_schema`) ve ilk dört temel tablo ise **Milestone 3B'de uygulanmıştır**:
+
+- **Uygulanan tablolar (Milestone 3B):** `prompt_requests`, `workflow_runs`, `prompt_versions`, `agent_runs`
+- **Planlanan değerlendirme tabloları (Milestone 7):** `evaluations`, `criterion_scores`, `evaluation_issues` (henüz oluşturulmamıştır)
+
+### 8.1 Göç (Migration) ve Bütünlük Kuralları (Milestone 3B — Uygulandı)
+
+- **Alembic ve `DATABASE_URL` entegrasyonu:** `migrations/env.py`, `Settings().database_url` ve `create_db_engine()` altyapısını yeniden kullanır; `create_all()` kullanılmaz ve FastAPI başlangıcında otomatik göç çalıştırılmaz. Göçler `alembic.ini` (`%(here)s`) ve `build_alembic_config()` sayesinde çalışma dizininden (CWD) bağımsız olarak `uv run alembic upgrade head` ve `uv run alembic downgrade -1` / `base` komutlarıyla yürütülür.
+- **Döngüsel yabancı anahtar çözümü (`WorkflowRun.final_version_id` ↔ `PromptVersion.id`):** `workflow_runs` ilk oluşturulduğunda `final_version_id` sütunu FK olmadan tanımlanır; `prompt_versions` tablosu oluşturulduktan sonra `op.batch_alter_table("workflow_runs")` (`use_alter=True`, `post_update=True`) ile `fk_workflow_runs_final_version_id_prompt_versions` (`ON DELETE SET NULL`) kısıtı eklenir. Geri alma (`downgrade`) sırasında `PRAGMA foreign_keys=ON` küresel olarak devre dışı bırakılmaz; önce `final_version_id` değerleri `NULL` yapılır, PostgreSQL gibi katalog tabanlı lehçelerde döngüsel FK düşürülür ve tablolar bağımlılık sırasıyla kaldırılır.
+- **Tarihsel kayıtların korunması ve kısıtlar:** Üretim ve yürütme geçmişinin yanlışlıkla silinmemesi için ebeveyn-çocuk ilişkilerinde `ON DELETE RESTRICT` uygulanır (`CASCADE` kullanılmaz). Üç değerlendirme turu sınırı (`max_evaluation_rounds BETWEEN 1 AND 3`, `evaluation_round BETWEEN 1 AND 3`) ve sürüm tekilliği (`UNIQUE(prompt_request_id, version_number)`, `UNIQUE(agent_run_id)`) veritabanı düzeyinde zorunlu tutulur.
+
+### 8.2 Hedef Varlık-İlişki Diyagramı (M3B Uygulanan + M7 Planlanan)
 
 ```mermaid
 erDiagram
@@ -452,6 +464,7 @@ erDiagram
         int input_tokens
         int output_tokens
         int latency_ms
+        text error_message
         datetime started_at
         datetime finished_at
     }
@@ -531,7 +544,7 @@ flowchart LR
 | **M1** | Mimari tasarım ve kararların onaylanması | Tamamlandı |
 | **M2A** | Monorepo iskeleti, FastAPI `/api/v1/health`, React + Tailwind başlangıç kabuğu, test/lint/CI, mimari ve ADR dokümanları | Tamamlandı |
 | **M3A** | `pydantic-settings` ortam yapılandırması, SQLite (`backend/data/promptforge.db`) + SQLAlchemy 2.0 Async motoru, oturum yaşam döngüsü ve PostgreSQL uyumlu bağlantı katmanı | **Tamamlandı** |
-| **M3B** | ORM temel modelleri ve Alembic göç (migration) altyapısı | Planlandı |
+| **M3B** | İlk dört ORM modeli (`prompt_requests`, `workflow_runs`, `prompt_versions`, `agent_runs`) ve asenkron Alembic göç altyapısı (`0001_initial_schema`) | **Tamamlandı** |
 | **M3C** | Yapılandırılmış JSON loglama, Problem Details hata yönetimi ve temel CRUD servis/uç noktaları | Planlandı |
 | **M4** | Frontend yönlendirme, API istemcisi, TanStack Query ve prompt gönderim formu | Planlandı |
 | **M5** | `LLMProvider` protokolü, `LLMGateway`, `FakeLLMProvider` ve ilk gerçek LLM sağlayıcı adaptörü | Planlandı |

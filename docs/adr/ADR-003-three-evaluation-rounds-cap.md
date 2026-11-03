@@ -1,6 +1,6 @@
 # ADR-003: En Fazla Üç Değerlendirme Turu Sınırı (`evaluation_round` 1–3)
 
-- **Durum:** Onaylandı (Planlanan uygulama: Milestone 3 – Milestone 8)
+- **Durum:** Onaylandı (`MAX_EVALUATION_ROUNDS_HARD_LIMIT = 3` ve veritabanı `CHECK` kısıtları M3B'de uygulandı; revizyon iş akışı M8'de uygulanacak)
 
 ## Bağlam
 
@@ -19,4 +19,5 @@ Kod tabanında ve veritabanında `iteration` yerine yalnızca `evaluation_round`
 ## Sonuçlar
 
 - Bir çalıştırmada en fazla 3 prompt sürümü ve 3 değerlendirme oluşur; maliyet ve süre öngörülebilir kalır.
+- Milestone 3B'de `workflow_runs` (`max_evaluation_rounds BETWEEN 1 AND 3`, `current_round` ve `completed_rounds` aralık kısıtları), `prompt_versions` (`evaluation_round IS NULL OR evaluation_round BETWEEN 1 AND 3`) ve `agent_runs` (`evaluation_round IS NULL OR evaluation_round BETWEEN 1 AND 3`) tablolarında bu sınır veritabanı düzeyinde aktif hale getirilmiştir; `evaluations` tablosundaki karşılığı Milestone 7'de eklenecektir.
 

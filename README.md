@@ -14,15 +14,16 @@
 
 ---
 
-## Mevcut Uygulama Durumu (Milestone 3A — Tamamlandı)
+## Mevcut Uygulama Durumu (Milestone 3B — Tamamlandı)
 
-> **Önemli Not:** Bu depo şu anda **Milestone 2A (Temel Altyapı)** ve **Milestone 3A (Asenkron Veritabanı Bağlantı Temeli)** aşamalarını tamamlamıştır. Uygulama veritabanı tabloları ve Alembic göçleri (Milestone 3B), hata/loglama ve CRUD servisleri (Milestone 3C), LLM sağlayıcı entegrasyonu, AI ajanları, `CanonicalPrompt` derleyicileri, token analizi ve sesli girdi (Speech-to-Text) özellikleri **henüz uygulanmamıştır**.
+> **Önemli Not:** Bu depo şu anda **Milestone 2A (Temel Altyapı)**, **Milestone 3A (Asenkron Veritabanı Bağlantı Temeli)** ve **Milestone 3B (İlk Dört ORM Modeli & Alembic Göç Sistemi)** aşamalarını tamamlamıştır. Hata/loglama ve CRUD servisleri (Milestone 3C), değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues` — Milestone 7), LLM sağlayıcı entegrasyonu, AI ajanları, `CanonicalPrompt` derleyicileri, token analizi ve sesli girdi (Speech-to-Text) özellikleri **henüz uygulanmamıştır**.
 
 **Şu anda çalışan bileşenler:**
 
 - `backend/` ve `frontend/` ayrımına sahip temiz monorepo yapısı
 - Python 3.12 ve `uv` ile yapılandırılmış FastAPI uygulaması (`GET /api/v1/health` ve otomatik OpenAPI dokümantasyonu `/docs`)
 - `pydantic-settings` ortam yapılandırması (`DATABASE_URL` desteği, CWD'den bağımsız `backend/data/promptforge.db` varsayılanı) ve SQLAlchemy 2.0 Async + `aiosqlite` oturum altyapısı (`DatabaseSessionManager`, `get_db_session`, yabancı anahtar ve dosya bazlı WAL yapılandırması)
+- SQLAlchemy 2.0 `DeclarativeBase` (`app/db/base.py`), ilk dört temel ORM modeli (`PromptRequest`, `WorkflowRun`, `PromptVersion`, `AgentRun`) ve CWD'den bağımsız asenkron Alembic göç sistemi (`0001_initial_schema`)
 - Backend otomatik testleri (`pytest`), statik tip kontrolü (`mypy --strict`) ve kod kalitesi kontrolleri (`ruff`)
 - React, Vite, TypeScript (`strict`) ve Tailwind CSS (Vite eklentisi) ile oluşturulmuş koyu temalı, duyarlı başlangıç arayüzü ve birim testleri (`vitest`)
 - Mimari dokümantasyon ([`docs/architecture.md`](./docs/architecture.md)) ve Mimari Karar Kayıtları ([`docs/adr/`](./docs/adr/README.md))
@@ -36,7 +37,7 @@
 |---|---|
 | **Frontend** | React 19, Vite 8, TypeScript (`strict`), Tailwind CSS v4 (`@tailwindcss/vite`), ESLint, Vitest |
 | **Backend** | Python 3.12, FastAPI, Pydantic v2, `pydantic-settings`, Uvicorn, `uv`, Ruff, mypy, pytest |
-| **Veritabanı** | SQLite + `aiosqlite` + SQLAlchemy 2.0 Async (M3A bağlantı temeli kuruldu; M3B'de Alembic ve şema eklenecek, PostgreSQL uyumlu) |
+| **Veritabanı** | SQLite + `aiosqlite` + SQLAlchemy 2.0 Async + Alembic (M3A bağlantı temeli ve M3B ilk 4 ORM modeli + Alembic göç sistemi kuruldu, PostgreSQL uyumlu) |
 | **AI Katmanı (Planlanan — M5+)** | Sağlayıcıdan bağımsız `LLMProvider` katmanı, `FakeLLMProvider` ve yapılandırılabilir model/ajan ayrımı |
 
 ---
@@ -77,13 +78,29 @@ PromptForge-AI/
 │   ├── app/
 │   │   ├── api/v1/routes/system.py
 │   │   ├── core/config.py
-│   │   ├── db/session.py
+│   │   ├── db/
+│   │   │   ├── base.py
+│   │   │   ├── migrations.py
+│   │   │   └── session.py
+│   │   ├── models/
+│   │   │   ├── agent_run.py
+│   │   │   ├── enums.py
+│   │   │   ├── prompt_request.py
+│   │   │   ├── prompt_version.py
+│   │   │   └── workflow_run.py
 │   │   └── main.py
+│   ├── migrations/
+│   │   ├── env.py
+│   │   ├── script.py.mako
+│   │   └── versions/
+│   │       └── 0001_initial_schema.py
 │   ├── tests/
 │   │   ├── test_database.py
-│   │   └── test_health.py
+│   │   ├── test_health.py
+│   │   └── test_migrations.py
 │   ├── .env.example
 │   ├── .python-version
+│   ├── alembic.ini
 │   ├── pyproject.toml
 │   ├── uv.lock
 │   └── README.md
@@ -136,12 +153,15 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 - Sağlık kontrolü: `http://127.0.0.1:8000/api/v1/health`
 - Swagger UI (OpenAPI): `http://127.0.0.1:8000/docs`
 
-**Backend doğrulama komutları:**
+**Backend göç (migration) ve doğrulama komutları:**
 
 ```powershell
 cd backend
+uv run alembic upgrade head
+uv run alembic downgrade -1
 uv run pytest -q
 uv run pytest tests/test_database.py -q
+uv run pytest tests/test_migrations.py -q
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy app tests
@@ -177,8 +197,8 @@ npm run build
 |---|---|---|
 | **Milestone 1** | Mimari analiz ve teknik planlama | Tamamlandı |
 | **Milestone 2A** | Monorepo, backend/frontend temeli, test/lint/CI ve mimari dokümantasyon | Tamamlandı |
-| **Milestone 3A** | `pydantic-settings` yapılandırması, SQLite + SQLAlchemy 2.0 Async motoru ve oturum yönetimi | **Tamamlandı** |
-| **Milestone 3B** | ORM temel modelleri ve Alembic veritabanı göç (migration) altyapısı | Planlandı |
+| **Milestone 3A** | `pydantic-settings` yapılandırması, SQLite + SQLAlchemy 2.0 Async motoru ve oturum yönetimi | Tamamlandı |
+| **Milestone 3B** | İlk dört ORM modeli (`prompt_requests`, `workflow_runs`, `prompt_versions`, `agent_runs`) ve Alembic göç altyapısı | **Tamamlandı** |
 | **Milestone 3C** | Yapılandırılmış loglama, hata yönetimi ve ilk backend servis/uç noktaları | Planlandı |
 | **Milestone 4** | Frontend yönlendirme, API istemcisi ve prompt gönderim arayüzü | Planlandı |
 | **Milestone 5** | Sağlayıcıdan bağımsız LLM katmanı, `FakeLLMProvider` ve ilk sağlayıcı entegrasyonu | Planlandı |
