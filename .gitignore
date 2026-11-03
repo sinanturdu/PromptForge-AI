@@ -59,6 +59,7 @@ pnpm-debug.log*
 .pnpm-store/
 
 # ---------- Databases ----------
+backend/data/
 *.db
 *.db-journal
 *.db-wal
