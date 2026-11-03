@@ -14,18 +14,18 @@
 
 ---
 
-## Mevcut Uygulama Durumu (Milestone 3B — Tamamlandı)
+## Mevcut Uygulama Durumu (Milestone 4A — Tamamlandı)
 
-> **Önemli Not:** Bu depo şu anda **Milestone 2A (Temel Altyapı)**, **Milestone 3A (Asenkron Veritabanı Bağlantı Temeli)** ve **Milestone 3B (İlk Dört ORM Modeli & Alembic Göç Sistemi)** aşamalarını tamamlamıştır. Hata/loglama ve CRUD servisleri (Milestone 3C), değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues` — Milestone 7), LLM sağlayıcı entegrasyonu, AI ajanları, `CanonicalPrompt` derleyicileri, token analizi ve sesli girdi (Speech-to-Text) özellikleri **henüz uygulanmamıştır**.
+> **Önemli Not:** Bu depo şu anda **Milestone 2A (Temel Altyapı)**, **Milestone 3A (Asenkron Veritabanı Bağlantı Temeli)**, **Milestone 3B (İlk Dört ORM Modeli & Alembic Göç Sistemi)**, **Milestone 3C (Prompt Yönetimi REST API, Yapılandırılmış Loglama, `X-Request-ID` ve RFC 9457 Problem Details)** ve **Milestone 4A (İşlevsel Prompt Gönderim Arayüzü & Backend Entegrasyonu)** aşamalarını tamamlamıştır. Prompt geçmişi listeleme ekranı (**Milestone 4B**), değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues` — Milestone 7), LLM sağlayıcı entegrasyonu, AI ajanları (`PromptEngineerAgent`, `PromptCriticAgent`), `CanonicalPrompt` derleyicileri, token analizi ve sesli girdi (Speech-to-Text) özellikleri **henüz uygulanmamıştır**.
 
 **Şu anda çalışan bileşenler:**
 
 - `backend/` ve `frontend/` ayrımına sahip temiz monorepo yapısı
-- Python 3.12 ve `uv` ile yapılandırılmış FastAPI uygulaması (`GET /api/v1/health` ve otomatik OpenAPI dokümantasyonu `/docs`)
-- `pydantic-settings` ortam yapılandırması (`DATABASE_URL` desteği, CWD'den bağımsız `backend/data/promptforge.db` varsayılanı) ve SQLAlchemy 2.0 Async + `aiosqlite` oturum altyapısı (`DatabaseSessionManager`, `get_db_session`, yabancı anahtar ve dosya bazlı WAL yapılandırması)
+- Python 3.12 ve `uv` ile yapılandırılmış FastAPI uygulaması (`GET /api/v1/health`, `POST/GET /api/v1/prompt-requests` ve otomatik OpenAPI dokümantasyonu `/docs`)
+- `pydantic-settings` ortam yapılandırması (`DATABASE_URL`, `LOG_LEVEL`, `MAX_REQUEST_BODY_BYTES`, CWD'den bağımsız `backend/data/promptforge.db` varsayılanı) ve SQLAlchemy 2.0 Async + `aiosqlite` oturum altyapısı
 - SQLAlchemy 2.0 `DeclarativeBase` (`app/db/base.py`), ilk dört temel ORM modeli (`PromptRequest`, `WorkflowRun`, `PromptVersion`, `AgentRun`) ve CWD'den bağımsız asenkron Alembic göç sistemi (`0001_initial_schema`)
-- Backend otomatik testleri (`pytest`), statik tip kontrolü (`mypy --strict`) ve kod kalitesi kontrolleri (`ruff`)
-- React, Vite, TypeScript (`strict`) ve Tailwind CSS (Vite eklentisi) ile oluşturulmuş koyu temalı, duyarlı başlangıç arayüzü ve birim testleri (`vitest`)
+- Yapılandırılmış UTC JSON loglama, sunucu taraflı `X-Request-ID` izleme, HTTP gövde boyutu sınırı ve merkezi RFC 9457 Problem Details (`application/problem+json`) hata yönetimi
+- React 19, Vite 8, TypeScript (`strict`), Tailwind CSS v4, React Router ve TanStack Query ile geliştirilmiş Türkçe prompt gönderim formu (`/`), UUID tabanlı prompt detay sayfası (`/prompt-requests/:id`), Problem Details uyumlu API istemcisi ve MSW destekli Vitest test paketi (canlı AI/LLM çağrısı içermez)
 - Mimari dokümantasyon ([`docs/architecture.md`](./docs/architecture.md)) ve Mimari Karar Kayıtları ([`docs/adr/`](./docs/adr/README.md))
 - GitHub Actions CI iş akışı ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml))
 
@@ -35,7 +35,7 @@
 
 | Katman | Teknolojiler |
 |---|---|
-| **Frontend** | React 19, Vite 8, TypeScript (`strict`), Tailwind CSS v4 (`@tailwindcss/vite`), ESLint, Vitest |
+| **Frontend** | React 19, Vite 8, TypeScript (`strict`), Tailwind CSS v4 (`@tailwindcss/vite`), React Router, TanStack Query, ESLint, Vitest, MSW |
 | **Backend** | Python 3.12, FastAPI, Pydantic v2, `pydantic-settings`, Uvicorn, `uv`, Ruff, mypy, pytest |
 | **Veritabanı** | SQLite + `aiosqlite` + SQLAlchemy 2.0 Async + Alembic (M3A bağlantı temeli ve M3B ilk 4 ORM modeli + Alembic göç sistemi kuruldu, PostgreSQL uyumlu) |
 | **AI Katmanı (Planlanan — M5+)** | Sağlayıcıdan bağımsız `LLMProvider` katmanı, `FakeLLMProvider` ve yapılandırılabilir model/ajan ayrımı |
@@ -146,6 +146,9 @@ cd backend
 # Sanal ortamı (.venv) oluştur ve bağımlılıkları kur
 uv sync --python 3.12
 
+# Yalnızca yapılandırılan veritabanı hedefini kontrol ettikten sonra şemayı hazırla:
+uv run alembic upgrade head
+
 # Geliştirme sunucusunu başlat (http://127.0.0.1:8000)
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
@@ -169,6 +172,8 @@ uv run mypy app tests
 
 ### Frontend Kurulumu ve Çalıştırma
 
+Yerel geliştirmede Vite sunucusu `/api` isteklerini `http://127.0.0.1:8000` adresindeki FastAPI servisine proxy üzerinden iletir (ayrıntılar ve üretim dağıtım notları için bkz. [`frontend/README.md`](./frontend/README.md)):
+
 ```powershell
 cd frontend
 
@@ -183,8 +188,8 @@ npm run dev
 
 ```powershell
 cd frontend
-npm run typecheck
 npm run lint
+npm run typecheck
 npm test
 npm run build
 ```
@@ -198,9 +203,10 @@ npm run build
 | **Milestone 1** | Mimari analiz ve teknik planlama | Tamamlandı |
 | **Milestone 2A** | Monorepo, backend/frontend temeli, test/lint/CI ve mimari dokümantasyon | Tamamlandı |
 | **Milestone 3A** | `pydantic-settings` yapılandırması, SQLite + SQLAlchemy 2.0 Async motoru ve oturum yönetimi | Tamamlandı |
-| **Milestone 3B** | İlk dört ORM modeli (`prompt_requests`, `workflow_runs`, `prompt_versions`, `agent_runs`) ve Alembic göç altyapısı | **Tamamlandı** |
-| **Milestone 3C** | Yapılandırılmış loglama, hata yönetimi ve ilk backend servis/uç noktaları | Planlandı |
-| **Milestone 4** | Frontend yönlendirme, API istemcisi ve prompt gönderim arayüzü | Planlandı |
+| **Milestone 3B** | İlk dört ORM modeli (`prompt_requests`, `workflow_runs`, `prompt_versions`, `agent_runs`) ve Alembic göç altyapısı | Tamamlandı |
+| **Milestone 3C** | Prompt yönetimi API uç noktaları, yapılandırılmış JSON loglama, `X-Request-ID` ve RFC 9457 Problem Details hata yönetimi | Tamamlandı |
+| **Milestone 4A** | React Router, TanStack Query, Problem Details uyumlu API istemcisi, Türkçe prompt gönderim formu ve detay sayfası | **Tamamlandı** |
+| **Milestone 4B** | Kaydedilen prompt istekleri için geçmiş listeleme ve sayfalama arayüzü | Planlandı |
 | **Milestone 5** | Sağlayıcıdan bağımsız LLM katmanı, `FakeLLMProvider` ve ilk sağlayıcı entegrasyonu | Planlandı |
 | **Milestone 6** | `PromptEngineerAgent`, `CanonicalPrompt` ara temsili ve `GenericPromptRenderer` | Planlandı |
 | **Milestone 7** | Bağımsız `PromptCriticAgent` ve deterministik puanlama motoru | Planlandı |
