@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Final
+from typing import Final, Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -12,6 +12,16 @@ from sqlalchemy.exc import ArgumentError
 BACKEND_DIR: Final[Path] = Path(__file__).resolve().parents[2]
 DEFAULT_DATA_DIR: Final[Path] = BACKEND_DIR / "data"
 DEFAULT_SQLITE_DB_PATH: Final[Path] = DEFAULT_DATA_DIR / "promptforge.db"
+
+LogLevelName = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+VALID_LOG_LEVELS: Final[frozenset[str]] = frozenset(
+    {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+)
+DEFAULT_LOG_LEVEL: Final[LogLevelName] = "INFO"
+
+# 256 KiB comfortably accommodates 20,000-char UTF-8 `raw_prompt` + 20,000-char UTF-8
+# `user_context` + JSON escaping and request metadata while bounding memory usage.
+DEFAULT_MAX_REQUEST_BODY_BYTES: Final[int] = 262_144
 
 
 def build_sqlite_url(db_path: Path) -> str:
@@ -42,9 +52,24 @@ class Settings(BaseSettings):
     app_version: str = "0.0.1"
     api_v1_prefix: str = "/api/v1"
 
+    log_level: LogLevelName = DEFAULT_LOG_LEVEL
+    max_request_body_bytes: int = Field(default=DEFAULT_MAX_REQUEST_BODY_BYTES, gt=0)
+
     database_url: str = Field(default_factory=_default_database_url)
     database_connect_timeout: float = Field(default=30.0, gt=0.0)
     database_echo: bool = False
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def normalize_log_level(cls, value: object) -> object:
+        """Normalize string log levels to uppercase before Literal validation."""
+        if isinstance(value, str):
+            stripped = value.strip().upper()
+            if stripped not in VALID_LOG_LEVELS:
+                allowed = ", ".join(sorted(VALID_LOG_LEVELS))
+                raise ValueError(f"LOG_LEVEL must be one of: {allowed}.")
+            return stripped
+        return value
 
     @field_validator("database_url")
     @classmethod
