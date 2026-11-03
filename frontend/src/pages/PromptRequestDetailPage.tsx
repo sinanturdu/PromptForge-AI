@@ -23,7 +23,8 @@ export function PromptRequestDetailPage() {
   const justCreated = Boolean(navState?.justCreated)
   const historyReturnPath =
     typeof navState?.fromHistoryPath === 'string' &&
-    navState.fromHistoryPath.startsWith(ROUTES.promptHistory)
+    (navState.fromHistoryPath === ROUTES.promptHistory ||
+      navState.fromHistoryPath.startsWith(`${ROUTES.promptHistory}?`))
       ? navState.fromHistoryPath
       : ROUTES.promptHistory
 

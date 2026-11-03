@@ -35,6 +35,9 @@ const FIELD_LABELS_TR: Readonly<Record<string, string>> = {
   response_detail_preference: 'Yanıt Detay Tercihi',
   reasoning_preference: 'Akıl Yürütme Tercihi',
   id: 'İstek Kimliği (UUID)',
+  q: 'Arama Sorgusu',
+  page: 'Sayfa Numarası',
+  page_size: 'Sayfa Boyutu',
 }
 
 export function resolveApiBaseUrl(

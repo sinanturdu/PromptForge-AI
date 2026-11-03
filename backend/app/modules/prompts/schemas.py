@@ -21,6 +21,7 @@ MAX_TASK_PROFILE_LENGTH: Final[int] = 64
 DEFAULT_PAGE: Final[int] = 1
 DEFAULT_PAGE_SIZE: Final[int] = 20
 MAX_PAGE_SIZE: Final[int] = 100
+MAX_SEARCH_QUERY_LENGTH: Final[int] = 200
 
 
 class PromptRequestCreate(BaseModel):

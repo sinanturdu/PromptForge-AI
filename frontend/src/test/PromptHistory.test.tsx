@@ -1,9 +1,9 @@
 import { QueryClient } from '@tanstack/react-query'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { HttpResponse, delay, http } from 'msw'
 import { MemoryRouter } from 'react-router'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import App from '../App'
 import { AppProviders } from '../app/providers'
 import { AppRoutes } from '../app/router'
@@ -593,5 +593,662 @@ describe('Prompt history, server-side pagination, and navigation (Milestone 4B-1
     } finally {
       window.history.replaceState({}, '', '/')
     }
+  })
+})
+
+describe('Server-side search, target AI filtering, and URL state management (Milestone 4B-2)', () => {
+  it('renders accessible search input, placeholder, maxLength, clear control, and all target AI filter options', async () => {
+    seedMockPromptRecord(buildFixtureRecord(1))
+    const user = userEvent.setup()
+    renderAppAtRoutes(['/history'])
+
+    expect(await screen.findByText(/Kayıt #1:/i)).toBeInTheDocument()
+
+    const searchInput = screen.getByLabelText('Anahtar Kelime ile Ara')
+    expect(searchInput).toHaveAttribute('placeholder', 'Promptlarında ara...')
+    expect(searchInput).toHaveAttribute('maxlength', '200')
+    expect(searchInput).toHaveValue('')
+    expect(screen.queryByRole('button', { name: 'Aramayı temizle' })).not.toBeInTheDocument()
+
+    const targetGroup = screen.getByRole('group', { name: 'Hedef Yapay Zekâ Ailesi' })
+    const allBtn = within(targetGroup).getByRole('button', { name: 'Tümü' })
+    const universalBtn = within(targetGroup).getByRole('button', { name: 'Universal' })
+    const openaiBtn = within(targetGroup).getByRole('button', { name: 'ChatGPT / GPT' })
+    const claudeBtn = within(targetGroup).getByRole('button', { name: 'Claude' })
+    const geminiBtn = within(targetGroup).getByRole('button', { name: 'Gemini' })
+
+    expect(allBtn).toHaveAttribute('aria-pressed', 'true')
+    expect(universalBtn).toHaveAttribute('aria-pressed', 'false')
+    expect(openaiBtn).toHaveAttribute('aria-pressed', 'false')
+    expect(claudeBtn).toHaveAttribute('aria-pressed', 'false')
+    expect(geminiBtn).toHaveAttribute('aria-pressed', 'false')
+
+    await user.type(searchInput, 'React')
+    expect(searchInput).toHaveValue('React')
+    expect(screen.getByRole('button', { name: 'Aramayı temizle' })).toBeInTheDocument()
+  })
+
+  it('debounces search typing (~350ms) so intermediate keystrokes do not fire API calls, then sends trimmed q', async () => {
+    seedMockPromptRecords([
+      buildFixtureRecord(1, { raw_prompt: 'React bileşen mimarisi tasarımı' }),
+      buildFixtureRecord(2, { raw_prompt: 'Python arka uç servisi' }),
+    ])
+
+    renderAppAtRoutes(['/history'])
+    expect(await screen.findByText(/Kayıt #2:|\bPython arka uç servisi\b/i)).toBeInTheDocument()
+    expect(getRecordedListQueries()).toHaveLength(1)
+
+    const searchInput = screen.getByLabelText('Anahtar Kelime ile Ara')
+
+    vi.useFakeTimers()
+    try {
+      for (const partial of ['  R', '  Re', '  Rea', '  Reac', '  React  ']) {
+        fireEvent.change(searchInput, { target: { value: partial } })
+        act(() => {
+          vi.advanceTimersByTime(100)
+        })
+      }
+
+      // Controlled input reflects user typing immediately, while API was NOT called yet
+      expect(searchInput).toHaveValue('  React  ')
+      expect(getRecordedListQueries()).toHaveLength(1)
+
+      // At 340ms total since last keystroke (100ms already advanced + 240ms = 340ms < 350ms), still no call
+      act(() => {
+        vi.advanceTimersByTime(240)
+      })
+      expect(getRecordedListQueries()).toHaveLength(1)
+
+      // Crossing 350ms commits normalized q='React' to URL and triggers exactly one search request
+      act(() => {
+        vi.advanceTimersByTime(20)
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+
+    await waitFor(() => {
+      expect(getRecordedListQueries()).toHaveLength(2)
+    })
+
+    expect(getRecordedListQueries()[1]).toEqual({
+      rawPage: '1',
+      rawPageSize: '10',
+      page: 1,
+      pageSize: 10,
+      rawQ: 'React',
+    })
+
+    expect(await screen.findByText('React bileşen mimarisi tasarımı')).toBeInTheDocument()
+    expect(screen.queryByText('Python arka uç servisi')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Toplam kayıt sayısı')).toHaveTextContent('Eşleşen 1 kayıt')
+  })
+
+  it('matches keywords across raw_prompt OR user_context and omits q when cleared or whitespace-only', async () => {
+    seedMockPromptRecords([
+      buildFixtureRecord(1, {
+        raw_prompt: 'Veritabanı şema doğrulaması',
+        user_context: 'GraphQL federasyon katmanı üzerinde çalışacak.',
+      }),
+      buildFixtureRecord(2, {
+        raw_prompt: 'GraphQL sorgu optimizasyonu',
+        user_context: null,
+      }),
+      buildFixtureRecord(3, {
+        raw_prompt: 'REST önbellek stratejisi',
+        user_context: 'Redis kullanılmadan bellek içi çözüm.',
+      }),
+    ])
+
+    const user = userEvent.setup()
+    renderAppAtRoutes(['/history'])
+    expect(await screen.findByText('REST önbellek stratejisi')).toBeInTheDocument()
+
+    const searchInput = screen.getByLabelText('Anahtar Kelime ile Ara')
+    await user.type(searchInput, 'graphql')
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Toplam kayıt sayısı')).toHaveTextContent('Eşleşen 2 kayıt')
+    })
+    expect(screen.getByText('Veritabanı şema doğrulaması')).toBeInTheDocument()
+    expect(screen.getByText('GraphQL sorgu optimizasyonu')).toBeInTheDocument()
+    expect(screen.queryByText('REST önbellek stratejisi')).not.toBeInTheDocument()
+
+    // Clearing via the input clear button removes q from API request and restores full history
+    await user.click(screen.getByRole('button', { name: 'Aramayı temizle' }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Toplam kayıt sayısı')).toHaveTextContent('Toplam 3 kayıt')
+    })
+    expect(searchInput).toHaveValue('')
+    const latestQuery = getRecordedListQueries().at(-1)
+    expect(latestQuery?.rawQ).toBeUndefined()
+  })
+
+  it('filters by each Target AI family and never sends "all" as a backend enum parameter', async () => {
+    seedMockPromptRecords([
+      buildFixtureRecord(1, { raw_prompt: 'Universal kayıt', target_mode: 'generic' }),
+      buildFixtureRecord(2, { raw_prompt: 'OpenAI kayıt', target_mode: 'openai' }),
+      buildFixtureRecord(3, { raw_prompt: 'Claude kayıt', target_mode: 'anthropic' }),
+      buildFixtureRecord(4, { raw_prompt: 'Gemini kayıt', target_mode: 'google' }),
+    ])
+
+    const user = userEvent.setup()
+    renderAppAtRoutes(['/history'])
+    expect(await screen.findByText('Gemini kayıt')).toBeInTheDocument()
+
+    const targetGroup = screen.getByRole('group', { name: 'Hedef Yapay Zekâ Ailesi' })
+
+    const expectations: Array<{
+      buttonLabel: string
+      expectedParam: TargetMode
+      visiblePrompt: string
+    }> = [
+      { buttonLabel: 'Universal', expectedParam: 'generic', visiblePrompt: 'Universal kayıt' },
+      { buttonLabel: 'ChatGPT / GPT', expectedParam: 'openai', visiblePrompt: 'OpenAI kayıt' },
+      { buttonLabel: 'Claude', expectedParam: 'anthropic', visiblePrompt: 'Claude kayıt' },
+      { buttonLabel: 'Gemini', expectedParam: 'google', visiblePrompt: 'Gemini kayıt' },
+    ]
+
+    for (const item of expectations) {
+      await user.click(within(targetGroup).getByRole('button', { name: item.buttonLabel }))
+      expect(await screen.findByText(item.visiblePrompt)).toBeInTheDocument()
+      expect(screen.getByLabelText('Toplam kayıt sayısı')).toHaveTextContent('Eşleşen 1 kayıt')
+      expect(getRecordedListQueries().at(-1)?.rawTargetMode).toBe(item.expectedParam)
+    }
+
+    // Selecting "Tümü" omits target_mode completely (never sends target_mode=all)
+    await user.click(within(targetGroup).getByRole('button', { name: 'Tümü' }))
+    await waitFor(() => {
+      expect(screen.getByLabelText('Toplam kayıt sayısı')).toHaveTextContent('Toplam 4 kayıt')
+    })
+    expect(getRecordedListQueries().at(-1)?.rawTargetMode).toBeUndefined()
+    for (const query of getRecordedListQueries()) {
+      expect(query.rawTargetMode).not.toBe('all')
+    }
+  })
+
+  it('combines keyword + target AI filters, resets page to 1 on filter change, and preserves filters across pages', async () => {
+    // 14 matching Claude + React records, plus non-matching OpenAI/Generic records
+    const claudeReactRecords = Array.from({ length: 14 }, (_, idx) =>
+      buildFixtureRecord(idx + 1, {
+        raw_prompt: `Claude React bileşeni #${idx + 1}`,
+        target_mode: 'anthropic',
+      }),
+    )
+    const otherRecords = [
+      buildFixtureRecord(20, {
+        raw_prompt: 'OpenAI React bileşeni #20',
+        target_mode: 'openai',
+      }),
+      buildFixtureRecord(21, {
+        raw_prompt: 'Claude Python servisi #21',
+        target_mode: 'anthropic',
+      }),
+    ]
+    seedMockPromptRecords([...claudeReactRecords, ...otherRecords])
+
+    const user = userEvent.setup()
+    renderAppAtRoutes(['/history?page=2'])
+
+    // Starts on unfiltered page 2 of 2 (16 total records)
+    expect(await screen.findByText('Claude React bileşeni #6')).toBeInTheDocument()
+
+    // Changing search keyword resets page from 2 -> 1
+    const searchInput = screen.getByLabelText('Anahtar Kelime ile Ara')
+    await user.type(searchInput, 'React')
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Toplam kayıt sayısı')).toHaveTextContent('Eşleşen 15 kayıt')
+    })
+    const navAfterSearch = screen.getByRole('navigation', { name: /Prompt geçmişi sayfalama/i })
+    expect(navAfterSearch).toHaveTextContent('Sayfa 1 / 2')
+    expect(getRecordedListQueries().at(-1)).toEqual({
+      rawPage: '1',
+      rawPageSize: '10',
+      page: 1,
+      pageSize: 10,
+      rawQ: 'React',
+    })
+
+    // Navigate to page 2 of keyword-filtered results
+    await user.click(within(navAfterSearch).getByRole('button', { name: /Sonraki/i }))
+    expect(await screen.findByText('Claude React bileşeni #5')).toBeInTheDocument()
+    expect(
+      screen.getByRole('navigation', { name: /Prompt geçmişi sayfalama/i }),
+    ).toHaveTextContent('Sayfa 2 / 2')
+
+    // Changing Target AI filter to Claude preserves q='React' AND resets page from 2 -> 1!
+    const targetGroup = screen.getByRole('group', { name: 'Hedef Yapay Zekâ Ailesi' })
+    await user.click(within(targetGroup).getByRole('button', { name: 'Claude' }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Toplam kayıt sayısı')).toHaveTextContent('Eşleşen 14 kayıt')
+    })
+    expect(searchInput).toHaveValue('React')
+    expect(screen.queryByText('OpenAI React bileşeni #20')).not.toBeInTheDocument()
+
+    const navCombinedP1 = screen.getByRole('navigation', { name: /Prompt geçmişi sayfalama/i })
+    expect(navCombinedP1).toHaveTextContent('1–10 / toplam 14 kayıt gösteriliyor')
+    expect(navCombinedP1).toHaveTextContent('Sayfa 1 / 2')
+    expect(getRecordedListQueries().at(-1)).toEqual({
+      rawPage: '1',
+      rawPageSize: '10',
+      page: 1,
+      pageSize: 10,
+      rawQ: 'React',
+      rawTargetMode: 'anthropic',
+    })
+
+    // Navigating to page 2 preserves BOTH q='React' and target_mode='anthropic'
+    await user.click(within(navCombinedP1).getByRole('button', { name: /Sonraki/i }))
+    expect(await screen.findByText('Claude React bileşeni #4')).toBeInTheDocument()
+    expect(getRecordedListQueries().at(-1)).toEqual({
+      rawPage: '2',
+      rawPageSize: '10',
+      page: 2,
+      pageSize: 10,
+      rawQ: 'React',
+      rawTargetMode: 'anthropic',
+    })
+  })
+
+  it('restores full search/filter/page state on refresh and returns to exact filtered URL from detail page', async () => {
+    const records = Array.from({ length: 12 }, (_, idx) =>
+      buildFixtureRecord(idx + 1, {
+        raw_prompt: `React Claude kaydı #${idx + 1}`,
+        target_mode: 'anthropic',
+      }),
+    )
+    seedMockPromptRecords(records)
+
+    const user = userEvent.setup()
+    // Simulate direct bookmark / browser refresh on filtered page 2
+    renderAppAtRoutes(['/history?q=React&target_mode=anthropic&page=2'])
+
+    expect(await screen.findByText('React Claude kaydı #2')).toBeInTheDocument()
+    expect(screen.getByLabelText('Anahtar Kelime ile Ara')).toHaveValue('React')
+
+    const targetGroup = screen.getByRole('group', { name: 'Hedef Yapay Zekâ Ailesi' })
+    expect(within(targetGroup).getByRole('button', { name: 'Claude' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(getRecordedListQueries()).toEqual([
+      {
+        rawPage: '2',
+        rawPageSize: '10',
+        page: 2,
+        pageSize: 10,
+        rawQ: 'React',
+        rawTargetMode: 'anthropic',
+      },
+    ])
+
+    // Open prompt detail page and return via "← Prompt Geçmişine Dön"
+    const detailLinks = screen.getAllByRole('link', { name: /Detayları Görüntüle/i })
+    await user.click(detailLinks[0]!)
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: /Prompt İsteği Detayları/i }),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('link', { name: /Prompt Geçmişine Dön/i }))
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Prompt Geçmişi' }),
+    ).toBeInTheDocument()
+    expect(await screen.findByText('React Claude kaydı #2')).toBeInTheDocument()
+    expect(screen.getByLabelText('Anahtar Kelime ile Ara')).toHaveValue('React')
+    expect(
+      within(screen.getByRole('group', { name: 'Hedef Yapay Zekâ Ailesi' })).getByRole('button', {
+        name: 'Claude',
+      }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    expect(
+      screen.getByRole('navigation', { name: /Prompt geçmişi sayfalama/i }),
+    ).toHaveTextContent('Sayfa 2 / 2')
+  })
+
+  it('synchronizes URL, controlled search input, and AI filter across browser Back and Forward navigation', async () => {
+    const records = Array.from({ length: 12 }, (_, idx) =>
+      buildFixtureRecord(idx + 1, {
+        raw_prompt: `React Claude kaydı #${idx + 1}`,
+        target_mode: 'anthropic',
+      }),
+    )
+    seedMockPromptRecords([
+      ...records,
+      buildFixtureRecord(30, {
+        raw_prompt: 'Gemini genel kaydı #30',
+        target_mode: 'google',
+      }),
+    ])
+
+    const user = userEvent.setup()
+    window.history.replaceState({}, '', '/history')
+
+    try {
+      render(<App />)
+
+      expect(await screen.findByText('Gemini genel kaydı #30')).toBeInTheDocument()
+      expect(window.location.search).toBe('')
+
+      // Push filter entry: target_mode=anthropic
+      const targetGroup = screen.getByRole('group', { name: 'Hedef Yapay Zekâ Ailesi' })
+      await user.click(within(targetGroup).getByRole('button', { name: 'Claude' }))
+
+      await waitFor(() => {
+        expect(window.location.search).toBe('?target_mode=anthropic')
+      })
+
+      // Type keyword 'React' -> replaces current history entry with ?q=React&target_mode=anthropic
+      const searchInput = screen.getByLabelText('Anahtar Kelime ile Ara')
+      await user.type(searchInput, 'React')
+
+      await waitFor(() => {
+        expect(window.location.search).toBe('?q=React&target_mode=anthropic')
+      })
+
+      expect(await screen.findByText('React Claude kaydı #12')).toBeInTheDocument()
+
+      // Push page 2 entry: ?q=React&target_mode=anthropic&page=2
+      const navP1 = await screen.findByRole('navigation', { name: /Prompt geçmişi sayfalama/i })
+      await waitFor(() => {
+        expect(within(navP1).getByRole('button', { name: /Sonraki/i })).toBeEnabled()
+      })
+      await user.click(within(navP1).getByRole('button', { name: /Sonraki/i }))
+
+      await waitFor(() => {
+        expect(window.location.search).toBe('?q=React&target_mode=anthropic&page=2')
+      })
+      expect(await screen.findByText('React Claude kaydı #2')).toBeInTheDocument()
+
+      // Back -> page 1 with ?q=React&target_mode=anthropic
+      act(() => {
+        window.history.back()
+      })
+      await waitFor(() => {
+        expect(window.location.search).toBe('?q=React&target_mode=anthropic')
+        expect(screen.getByLabelText('Anahtar Kelime ile Ara')).toHaveValue('React')
+      })
+
+      // Back -> unfiltered /history (input resets cleanly to '')
+      act(() => {
+        window.history.back()
+      })
+      await waitFor(() => {
+        expect(window.location.search).toBe('')
+        expect(screen.getByLabelText('Anahtar Kelime ile Ara')).toHaveValue('')
+        expect(screen.getByText('Gemini genel kaydı #30')).toBeInTheDocument()
+      })
+
+      // Forward -> restores ?q=React&target_mode=anthropic and input 'React'
+      act(() => {
+        window.history.forward()
+      })
+      await waitFor(() => {
+        expect(window.location.search).toBe('?q=React&target_mode=anthropic')
+        expect(screen.getByLabelText('Anahtar Kelime ile Ara')).toHaveValue('React')
+      })
+    } finally {
+      window.history.replaceState({}, '', '/')
+    }
+  })
+
+  it('distinguishes empty database from no-matching-records and supports removing individual or all filters', async () => {
+    const user = userEvent.setup()
+
+    // 1. Completely empty database -> shows "Henüz kayıtlı prompt isteğiniz bulunmuyor."
+    const emptyRender = renderAppAtRoutes(['/history'])
+    expect(
+      await screen.findByRole('heading', {
+        name: 'Henüz kayıtlı prompt isteğiniz bulunmuyor.',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Aramanızla eşleşen prompt bulunamadı.' }),
+    ).not.toBeInTheDocument()
+    emptyRender.unmount()
+
+    // 2. Non-empty database with non-matching filter -> shows "Aramanızla eşleşen prompt bulunamadı." + "Filtreleri Temizle"
+    seedMockPromptRecords([
+      buildFixtureRecord(1, { raw_prompt: 'FastAPI servis mimarisi', target_mode: 'openai' }),
+      buildFixtureRecord(2, { raw_prompt: 'React arayüz testi', target_mode: 'anthropic' }),
+    ])
+
+    window.history.replaceState({}, '', '/history?q=Rust&target_mode=google')
+    try {
+      render(<App />)
+
+      expect(
+        await screen.findByRole('heading', {
+          name: 'Aramanızla eşleşen prompt bulunamadı.',
+        }),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole('heading', {
+          name: 'Henüz kayıtlı prompt isteğiniz bulunmuyor.',
+        }),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('navigation', { name: /Prompt geçmişi sayfalama/i }),
+      ).not.toBeInTheDocument()
+
+      // Clear all filters via "Filtreleri Temizle" -> canonical /history and full dataset
+      await user.click(screen.getByRole('button', { name: 'Filtreleri Temizle' }))
+
+      await waitFor(() => {
+        expect(window.location.pathname).toBe('/history')
+        expect(window.location.search).toBe('')
+      })
+      expect(await screen.findByText('FastAPI servis mimarisi')).toBeInTheDocument()
+      expect(screen.getByText('React arayüz testi')).toBeInTheDocument()
+      expect(screen.getByLabelText('Anahtar Kelime ile Ara')).toHaveValue('')
+
+      // Apply both filters and remove them individually via chip remove buttons
+      const targetGroup = screen.getByRole('group', { name: 'Hedef Yapay Zekâ Ailesi' })
+      await user.click(within(targetGroup).getByRole('button', { name: 'Claude' }))
+      await user.type(screen.getByLabelText('Anahtar Kelime ile Ara'), 'React')
+
+      await waitFor(() => {
+        expect(window.location.search).toBe('?q=React&target_mode=anthropic')
+      })
+
+      // Remove individual target_mode filter while preserving q='React'
+      await user.click(screen.getByRole('button', { name: 'Hedef model filtresini kaldır' }))
+      await waitFor(() => {
+        expect(window.location.search).toBe('?q=React')
+      })
+      expect(screen.getByLabelText('Anahtar Kelime ile Ara')).toHaveValue('React')
+
+      // Remove individual search filter -> back to canonical /history
+      await user.click(screen.getByRole('button', { name: 'Arama filtresini kaldır' }))
+      await waitFor(() => {
+        expect(window.location.search).toBe('')
+      })
+      expect(screen.getByLabelText('Toplam kayıt sayısı')).toHaveTextContent('Toplam 2 kayıt')
+    } finally {
+      window.history.replaceState({}, '', '/')
+    }
+  })
+
+  it('safely normalizes invalid URL filter values and out-of-range filtered page numbers without invalid API calls', async () => {
+    const claudeRecords = Array.from({ length: 12 }, (_, idx) =>
+      buildFixtureRecord(idx + 1, {
+        raw_prompt: `Claude filtre kaydı #${idx + 1}`,
+        target_mode: 'anthropic',
+      }),
+    )
+    const otherRecords = Array.from({ length: 15 }, (_, idx) =>
+      buildFixtureRecord(idx + 20, {
+        raw_prompt: `OpenAI kaydı #${idx + 20}`,
+        target_mode: 'openai',
+      }),
+    )
+    seedMockPromptRecords([...claudeRecords, ...otherRecords])
+
+    // 1. Invalid target_mode ("invalid_ai", "all") and blank q normalize cleanly without 422 API errors
+    window.history.replaceState({}, '', '/history?q=%20%20%20&target_mode=all&page=-2')
+    try {
+      const firstView = render(<App />)
+      expect(await screen.findByText('OpenAI kaydı #34')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(window.location.search).toBe('')
+      })
+      expect(getRecordedListQueries()[0]).toEqual({
+        rawPage: '1',
+        rawPageSize: '10',
+        page: 1,
+        pageSize: 10,
+      })
+      firstView.unmount()
+
+      // 2. Out-of-range page=3 against filtered total=12 (2 filtered pages, even though unfiltered has 3 pages!)
+      window.history.replaceState({}, '', '/history?q=Claude&target_mode=anthropic&page=3')
+      render(<App />)
+
+      expect(await screen.findByText('Claude filtre kaydı #2')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(window.location.search).toBe('?q=Claude&target_mode=anthropic&page=2')
+      })
+      expect(
+        screen.getByRole('navigation', { name: /Prompt geçmişi sayfalama/i }),
+      ).toHaveTextContent('Sayfa 2 / 2')
+    } finally {
+      window.history.replaceState({}, '', '/')
+    }
+  })
+
+  it('prevents slow obsolete search responses from overwriting newer filter results and handles filtered API errors', async () => {
+    const slowItem = buildFixtureRecord(1, {
+      raw_prompt: 'Eski yavaş sorgu sonucu Alpha',
+      target_mode: 'openai',
+    })
+    const fastItem = buildFixtureRecord(2, {
+      raw_prompt: 'Yeni hızlı sorgu sonucu Beta',
+      target_mode: 'anthropic',
+    })
+
+    server.use(
+      http.get('/api/v1/prompt-requests', async ({ request }) => {
+        const url = new URL(request.url)
+        const mode = url.searchParams.get('target_mode')
+
+        if (mode === 'openai') {
+          await delay(180)
+          return HttpResponse.json({
+            items: [slowItem],
+            total: 1,
+            page: 1,
+            page_size: 10,
+          })
+        }
+
+        if (mode === 'anthropic') {
+          await delay(20)
+          return HttpResponse.json({
+            items: [fastItem],
+            total: 1,
+            page: 1,
+            page_size: 10,
+          })
+        }
+
+        return HttpResponse.json({
+          items: [fastItem, slowItem],
+          total: 2,
+          page: 1,
+          page_size: 10,
+        })
+      }),
+    )
+
+    const user = userEvent.setup()
+    const raceView = renderAppAtRoutes(['/history'])
+    expect(await screen.findByText('Yeni hızlı sorgu sonucu Beta')).toBeInTheDocument()
+
+    const targetGroup = screen.getByRole('group', { name: 'Hedef Yapay Zekâ Ailesi' })
+
+    // Trigger slow request (openai), then immediately switch to fast request (anthropic)
+    await user.click(within(targetGroup).getByRole('button', { name: 'ChatGPT / GPT' }))
+    await user.click(within(targetGroup).getByRole('button', { name: 'Claude' }))
+
+    expect(await screen.findByText('Yeni hızlı sorgu sonucu Beta')).toBeInTheDocument()
+
+    // Wait past slow request's 180ms completion window and verify stale openai result NEVER overwrites Claude result
+    await delay(220)
+    expect(screen.getByText('Yeni hızlı sorgu sonucu Beta')).toBeInTheDocument()
+    expect(screen.queryByText('Eski yavaş sorgu sonucu Alpha')).not.toBeInTheDocument()
+    raceView.unmount()
+
+    // Filtered Problem Details 422 + network retry check while preserving search input text
+    let networkAttempts = 0
+    server.use(
+      http.get('/api/v1/prompt-requests', ({ request }) => {
+        const url = new URL(request.url)
+        if (url.searchParams.get('q') === 'HataTesti') {
+          networkAttempts += 1
+          if (networkAttempts <= 2) {
+            return HttpResponse.error()
+          }
+        }
+        return HttpResponse.json({
+          items: [fastItem],
+          total: 1,
+          page: 1,
+          page_size: 10,
+        })
+      }),
+    )
+
+    const errorView = renderAppAtRoutes(['/history?q=HataTesti'])
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Backend servisine bağlanılamadı/i)
+    // User's search text remains intact during error state
+    expect(screen.getByLabelText('Anahtar Kelime ile Ara')).toHaveValue('HataTesti')
+
+    await user.click(within(alert).getByRole('button', { name: 'Tekrar Dene' }))
+    expect(await screen.findByText('Yeni hızlı sorgu sonucu Beta')).toBeInTheDocument()
+    errorView.unmount()
+
+    // Problem Details 422 on search parameter displays localized Turkish message + Request ID without SQL leak
+    server.use(
+      http.get('/api/v1/prompt-requests', () => {
+        return HttpResponse.json(
+          {
+            type: 'about:blank',
+            title: 'Unprocessable Content',
+            status: 422,
+            detail: 'SELECT * FROM prompt_requests WHERE raw_prompt ILIKE ...',
+            request_id: 'req-search-422-id',
+            error_code: 'validation_error',
+            errors: [
+              {
+                field: 'q',
+                code: 'string_too_long',
+                message: 'String should have at most 200 characters',
+              },
+            ],
+          },
+          {
+            status: 422,
+            headers: {
+              'Content-Type': 'application/problem+json',
+              'X-Request-ID': 'req-search-422-id',
+            },
+          },
+        )
+      }),
+    )
+
+    renderAppAtRoutes(['/history?q=ProblemTest'])
+    const problemAlert = await screen.findByRole('alert')
+    expect(problemAlert).toHaveTextContent('req-search-422-id')
+    expect(problemAlert).toHaveTextContent(
+      'Arama Sorgusu izin verilen azami karakter sınırını aşıyor.',
+    )
+    expect(problemAlert).not.toHaveTextContent(/SELECT \*/i)
   })
 })

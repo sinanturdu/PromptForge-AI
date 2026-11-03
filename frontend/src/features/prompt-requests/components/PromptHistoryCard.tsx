@@ -10,12 +10,18 @@ import {
 interface PromptHistoryCardProps {
   readonly record: PromptRequestRecord
   readonly currentPage: number
+  readonly returnHistoryPath?: string
 }
 
-export function PromptHistoryCard({ record, currentPage }: PromptHistoryCardProps) {
+export function PromptHistoryCard({
+  record,
+  currentPage,
+  returnHistoryPath,
+}: PromptHistoryCardProps) {
   const targetMeta = getTargetFamilyMeta(record.target_mode)
   const promptDetailMeta = getPromptDetailMeta(record.prompt_detail_level)
   const cardHeadingId = `history-card-${record.id}`
+  const resolvedHistoryPath = returnHistoryPath ?? ROUTES.promptHistoryWithPage(currentPage)
 
   return (
     <article
@@ -70,7 +76,7 @@ export function PromptHistoryCard({ record, currentPage }: PromptHistoryCardProp
 
         <Link
           to={ROUTES.promptRequestDetail(record.id)}
-          state={{ fromHistoryPath: ROUTES.promptHistoryWithPage(currentPage) }}
+          state={{ fromHistoryPath: resolvedHistoryPath }}
           className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-500/40 bg-indigo-500/15 px-3.5 py-2 text-xs font-semibold text-indigo-200 transition-colors hover:border-indigo-400/60 hover:bg-indigo-500/25 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
         >
           <span>Detayları Görüntüle</span>

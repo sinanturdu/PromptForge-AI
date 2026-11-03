@@ -8,6 +8,7 @@ interface PromptHistoryListProps {
   readonly totalPages: number
   readonly totalItems: number
   readonly pageSize: number
+  readonly returnHistoryPath?: string
   readonly isFetching?: boolean
   readonly onPageChange: (nextPage: number) => void
 }
@@ -18,6 +19,7 @@ export function PromptHistoryList({
   totalPages,
   totalItems,
   pageSize,
+  returnHistoryPath,
   isFetching = false,
   onPageChange,
 }: PromptHistoryListProps) {
@@ -32,7 +34,11 @@ export function PromptHistoryList({
       <ul aria-label="Kaydedilen prompt istekleri listesi" className="space-y-4">
         {items.map((record) => (
           <li key={record.id}>
-            <PromptHistoryCard record={record} currentPage={currentPage} />
+            <PromptHistoryCard
+              record={record}
+              currentPage={currentPage}
+              returnHistoryPath={returnHistoryPath}
+            />
           </li>
         ))}
       </ul>

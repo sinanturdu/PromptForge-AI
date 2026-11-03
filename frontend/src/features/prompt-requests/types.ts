@@ -10,6 +10,17 @@ export const MAX_TASK_PROFILE_LENGTH = 64
 
 export const DEFAULT_HISTORY_PAGE = 1
 export const DEFAULT_HISTORY_PAGE_SIZE = 10
+export const MAX_SEARCH_QUERY_LENGTH = 200
+export const SEARCH_DEBOUNCE_MS = 350
+
+export type TargetModeFilter = TargetMode | 'all'
+
+export interface PromptHistoryQueryParams {
+  readonly page: number
+  readonly pageSize: number
+  readonly q?: string
+  readonly targetMode?: TargetMode
+}
 
 export interface PromptRequestCreatePayload {
   readonly raw_prompt: string
@@ -112,6 +123,19 @@ export const TARGET_AI_FAMILY_OPTIONS: readonly TargetAiFamilyOption[] = [
     badge: 'google',
     description: 'Kısıtlamaları ve yapılandırılmış çıktı beklentilerini öne çıkaran Gemini uyumlu düzen.',
   },
+]
+
+export interface TargetAiFilterOption {
+  readonly value: TargetModeFilter
+  readonly label: string
+}
+
+export const TARGET_AI_FILTER_OPTIONS: readonly TargetAiFilterOption[] = [
+  { value: 'all', label: 'Tümü' },
+  ...TARGET_AI_FAMILY_OPTIONS.map((option) => ({
+    value: option.value,
+    label: option.label,
+  })),
 ]
 
 export const OUTPUT_LANGUAGE_OPTIONS: readonly OutputLanguageOption[] = [

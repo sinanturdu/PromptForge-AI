@@ -1,8 +1,10 @@
 import { HttpResponse, http } from 'msw'
-import type {
-  PromptRequestCreatePayload,
-  PromptRequestListResponse,
-  PromptRequestRecord,
+import { isValidTargetMode } from '../../features/prompt-requests/formatters'
+import {
+  MAX_SEARCH_QUERY_LENGTH,
+  type PromptRequestCreatePayload,
+  type PromptRequestListResponse,
+  type PromptRequestRecord,
 } from '../../features/prompt-requests/types'
 
 export interface RecordedListQuery {
@@ -10,6 +12,8 @@ export interface RecordedListQuery {
   readonly rawPageSize: string | null
   readonly page: number
   readonly pageSize: number
+  readonly rawQ?: string
+  readonly rawTargetMode?: string
 }
 
 const mockPromptStore = new Map<string, PromptRequestRecord>()
@@ -60,6 +64,27 @@ function sortRecordsNewestFirst(
   })
 }
 
+function matchesSearchAndTargetFilters(
+  record: PromptRequestRecord,
+  normalizedQuery: string,
+  targetMode: string | null,
+): boolean {
+  if (targetMode !== null && record.target_mode !== targetMode) {
+    return false
+  }
+
+  if (normalizedQuery.length === 0) {
+    return true
+  }
+
+  const needle = normalizedQuery.toLowerCase()
+  const matchesRawPrompt = record.raw_prompt.toLowerCase().includes(needle)
+  const matchesUserContext =
+    record.user_context !== null && record.user_context.toLowerCase().includes(needle)
+
+  return matchesRawPrompt || matchesUserContext
+}
+
 export const defaultHandlers = [
   http.post('/api/v1/prompt-requests', async ({ request }) => {
     const body = (await request.json()) as PromptRequestCreatePayload
@@ -97,6 +122,8 @@ export const defaultHandlers = [
     const url = new URL(request.url)
     const rawPage = url.searchParams.get('page')
     const rawPageSize = url.searchParams.get('page_size')
+    const rawQ = url.searchParams.get('q')
+    const rawTargetMode = url.searchParams.get('target_mode')
 
     const parsedPage = rawPage === null ? 1 : Number(rawPage)
     const parsedPageSize = rawPageSize === null ? 20 : Number(rawPageSize)
@@ -106,6 +133,8 @@ export const defaultHandlers = [
       rawPageSize,
       page: parsedPage,
       pageSize: parsedPageSize,
+      ...(rawQ !== null ? { rawQ } : {}),
+      ...(rawTargetMode !== null ? { rawTargetMode } : {}),
     })
 
     if (
@@ -135,7 +164,67 @@ export const defaultHandlers = [
       )
     }
 
-    const sortedRecords = sortRecordsNewestFirst(Array.from(mockPromptStore.values()))
+    if (rawQ !== null && rawQ.length > MAX_SEARCH_QUERY_LENGTH) {
+      return HttpResponse.json(
+        {
+          type: 'about:blank',
+          title: 'Unprocessable Content',
+          status: 422,
+          detail: 'One or more request fields failed validation.',
+          instance: '/api/v1/prompt-requests',
+          request_id: 'req-422-query-too-long',
+          error_code: 'validation_error',
+          errors: [
+            {
+              field: 'q',
+              code: 'string_too_long',
+              message: `String should have at most ${MAX_SEARCH_QUERY_LENGTH} characters`,
+            },
+          ],
+        },
+        {
+          status: 422,
+          headers: {
+            'Content-Type': 'application/problem+json',
+            'X-Request-ID': 'req-422-query-too-long',
+          },
+        },
+      )
+    }
+
+    if (rawTargetMode !== null && !isValidTargetMode(rawTargetMode)) {
+      return HttpResponse.json(
+        {
+          type: 'about:blank',
+          title: 'Unprocessable Content',
+          status: 422,
+          detail: 'One or more request fields failed validation.',
+          instance: '/api/v1/prompt-requests',
+          request_id: 'req-422-invalid-target-mode',
+          error_code: 'validation_error',
+          errors: [
+            {
+              field: 'target_mode',
+              code: 'enum',
+              message: "Input should be 'generic', 'openai', 'anthropic' or 'google'",
+            },
+          ],
+        },
+        {
+          status: 422,
+          headers: {
+            'Content-Type': 'application/problem+json',
+            'X-Request-ID': 'req-422-invalid-target-mode',
+          },
+        },
+      )
+    }
+
+    const normalizedQuery = rawQ?.trim() ?? ''
+    const matchingRecords = Array.from(mockPromptStore.values()).filter((record) =>
+      matchesSearchAndTargetFilters(record, normalizedQuery, rawTargetMode),
+    )
+    const sortedRecords = sortRecordsNewestFirst(matchingRecords)
     const startIndex = (parsedPage - 1) * parsedPageSize
     const pageItems = sortedRecords.slice(startIndex, startIndex + parsedPageSize)
 

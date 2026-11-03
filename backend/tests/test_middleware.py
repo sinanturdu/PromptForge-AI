@@ -1,7 +1,7 @@
 """Tests for Milestone 3C-2 Request ID tracing and HTTP body size limit middlewares."""
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from uuid import UUID
 
@@ -12,7 +12,7 @@ from fastapi import Request
 from fastapi.testclient import TestClient
 from pydantic_settings import SettingsConfigDict
 
-from app.core.config import DEFAULT_SQLITE_DB_PATH, Settings, build_sqlite_url
+from app.core.config import Settings, build_sqlite_url
 from app.core.logging import REQUEST_ID_HEADER, get_request_id
 from app.db.migrations import build_alembic_config
 from app.main import create_app
@@ -245,6 +245,7 @@ async def test_body_size_limit_enforces_content_length_and_stops_chunked_streams
 
 def test_default_body_limit_supports_maximum_multibyte_utf8_prompt_and_context(
     migrated_db_url: str,
+    default_db_guard: Callable[[], None],
 ) -> None:
     settings = IsolatedMiddlewareSettings(database_url=migrated_db_url)
     app = create_app(settings=settings)
@@ -276,4 +277,4 @@ def test_default_body_limit_supports_maximum_multibyte_utf8_prompt_and_context(
         assert len(resp.json()["raw_prompt"]) == MAX_RAW_PROMPT_LENGTH
         assert len(resp.json()["user_context"]) == MAX_USER_CONTEXT_LENGTH
 
-    assert not DEFAULT_SQLITE_DB_PATH.exists()
+    default_db_guard()

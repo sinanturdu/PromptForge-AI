@@ -4,16 +4,38 @@ import { createPromptRequest, getPromptRequestById, getPromptRequests } from './
 import {
   DEFAULT_HISTORY_PAGE,
   DEFAULT_HISTORY_PAGE_SIZE,
+  MAX_SEARCH_QUERY_LENGTH,
+  type PromptHistoryQueryParams,
   type PromptRequestCreatePayload,
   type PromptRequestListResponse,
   type PromptRequestRecord,
+  type TargetMode,
 } from './types'
+
+export interface NormalizedPromptListKeyParams {
+  readonly page: number
+  readonly pageSize: number
+  readonly q: string | null
+  readonly targetMode: TargetMode | null
+}
+
+export function normalizePromptListQueryParams(
+  params: PromptHistoryQueryParams,
+): NormalizedPromptListKeyParams {
+  const trimmedQuery = params.q?.trim()
+  return {
+    page: params.page,
+    pageSize: params.pageSize,
+    q: trimmedQuery && trimmedQuery.length > 0 ? trimmedQuery : null,
+    targetMode: params.targetMode ?? null,
+  }
+}
 
 export const promptRequestKeys = {
   all: ['prompt-requests'] as const,
   lists: () => ['prompt-requests', 'list'] as const,
-  list: (page: number, pageSize: number) =>
-    ['prompt-requests', 'list', { page, pageSize }] as const,
+  list: (params: PromptHistoryQueryParams) =>
+    ['prompt-requests', 'list', normalizePromptListQueryParams(params)] as const,
   details: () => ['prompt-requests', 'detail'] as const,
   detail: (id: string) => ['prompt-requests', 'detail', id] as const,
 }
@@ -39,14 +61,31 @@ export function useCreatePromptRequestMutation() {
 }
 
 export function usePromptRequestsQuery(
-  page: number = DEFAULT_HISTORY_PAGE,
-  pageSize: number = DEFAULT_HISTORY_PAGE_SIZE,
+  params: PromptHistoryQueryParams = {
+    page: DEFAULT_HISTORY_PAGE,
+    pageSize: DEFAULT_HISTORY_PAGE_SIZE,
+  },
 ) {
-  const isValidRange = Number.isInteger(page) && page >= 1 && Number.isInteger(pageSize) && pageSize >= 1
+  const normalized = normalizePromptListQueryParams(params)
+  const isValidRange =
+    Number.isInteger(normalized.page) &&
+    normalized.page >= 1 &&
+    Number.isInteger(normalized.pageSize) &&
+    normalized.pageSize >= 1 &&
+    (normalized.q === null || normalized.q.length <= MAX_SEARCH_QUERY_LENGTH)
 
   return useQuery<PromptRequestListResponse, ApiClientError>({
-    queryKey: promptRequestKeys.list(page, pageSize),
-    queryFn: ({ signal }) => getPromptRequests(page, pageSize, signal),
+    queryKey: promptRequestKeys.list(params),
+    queryFn: ({ signal }) =>
+      getPromptRequests(
+        {
+          page: normalized.page,
+          pageSize: normalized.pageSize,
+          q: normalized.q ?? undefined,
+          targetMode: normalized.targetMode ?? undefined,
+        },
+        signal,
+      ),
     enabled: isValidRange,
     retry: shouldRetryReadQuery,
   })

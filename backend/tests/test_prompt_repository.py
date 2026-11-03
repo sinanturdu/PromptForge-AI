@@ -1,5 +1,6 @@
 """Tests for PromptRequestRepository, PromptRequestService, and schema alignment."""
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -11,7 +12,7 @@ from sqlalchemy import String
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import DEFAULT_SQLITE_DB_PATH, build_sqlite_url
+from app.core.config import build_sqlite_url
 from app.db.migrations import build_alembic_config
 from app.db.session import DatabaseSessionManager
 from app.models.enums import (
@@ -21,13 +22,18 @@ from app.models.enums import (
     TargetMode,
 )
 from app.models.prompt_request import PromptRequest
-from app.modules.prompts.repository import PromptRequestRepository
+from app.modules.prompts.repository import PromptRequestRepository, escape_like_term
 from app.modules.prompts.schemas import (
     MAX_OUTPUT_LANGUAGE_LENGTH,
+    MAX_SEARCH_QUERY_LENGTH,
     MAX_TASK_PROFILE_LENGTH,
     PromptRequestCreate,
 )
-from app.modules.prompts.service import PromptRequestNotFoundError, PromptRequestService
+from app.modules.prompts.service import (
+    PromptRequestNotFoundError,
+    PromptRequestService,
+    normalize_search_query,
+)
 
 
 @pytest.fixture
@@ -63,6 +69,26 @@ def test_pydantic_defaults_and_lengths_match_prompt_request_orm_model() -> None:
     assert isinstance(task_profile_type, String)
     assert output_lang_type.length == MAX_OUTPUT_LANGUAGE_LENGTH
     assert task_profile_type.length == MAX_TASK_PROFILE_LENGTH
+
+
+def test_escape_like_term_and_normalize_search_query_unit_rules() -> None:
+    assert escape_like_term("React") == "React"
+    assert escape_like_term("100% coverage") == r"100\% coverage"
+    assert escape_like_term("task_profile_v1") == r"task\_profile\_v1"
+    assert escape_like_term(r"C:\Users\sinan\app") == r"C:\\Users\\sinan\\app"
+    assert escape_like_term(r"50%_\mix") == r"50\%\_\\mix"
+
+    with pytest.raises(ValueError, match="single character"):
+        escape_like_term("test", escape_char="!!")
+
+    assert normalize_search_query(None) is None
+    assert normalize_search_query("") is None
+    assert normalize_search_query("   \t\n  ") is None
+    assert normalize_search_query("  FastAPI  ") == "FastAPI"
+    assert normalize_search_query("x" * MAX_SEARCH_QUERY_LENGTH) == "x" * MAX_SEARCH_QUERY_LENGTH
+
+    with pytest.raises(ValueError, match="at most 200"):
+        normalize_search_query("x" * (MAX_SEARCH_QUERY_LENGTH + 1))
 
 
 @pytest.mark.anyio
@@ -165,8 +191,104 @@ async def test_repository_paginated_listing_and_deterministic_id_tie_breaker(
 
 
 @pytest.mark.anyio
+async def test_repository_filtered_count_search_and_literal_wildcards(
+    migrated_sqlite_url: str,
+) -> None:
+    manager = DatabaseSessionManager(migrated_sqlite_url)
+    try:
+        t1 = datetime(2026, 8, 1, 9, 0, 0, tzinfo=UTC)
+        t2 = datetime(2026, 8, 1, 10, 0, 0, tzinfo=UTC)
+        t3 = datetime(2026, 8, 1, 11, 0, 0, tzinfo=UTC)
+        t4 = datetime(2026, 8, 1, 12, 0, 0, tzinfo=UTC)
+
+        async with manager.session() as session:
+            repo = PromptRequestRepository(session)
+            await repo.create(
+                PromptRequest(
+                    raw_prompt="Achieve 100% test reliability on FastAPI endpoints.",
+                    user_context=None,
+                    target_mode=TargetMode.ANTHROPIC.value,
+                    created_at=t1,
+                )
+            )
+            await repo.create(
+                PromptRequest(
+                    raw_prompt="Achieve 1000 req/s throughput on FastAPI endpoints.",
+                    user_context="Schema uses task_profile column.",
+                    target_mode=TargetMode.OPENAI.value,
+                    created_at=t2,
+                )
+            )
+            await repo.create(
+                PromptRequest(
+                    raw_prompt="Configure taskXprofile parser.",
+                    user_context=r"Workspace root is C:\Projects\PromptForge.",
+                    target_mode=TargetMode.ANTHROPIC.value,
+                    created_at=t3,
+                )
+            )
+            await repo.create(
+                PromptRequest(
+                    raw_prompt="Workspace root is C:ProjectsPromptForge without slashes.",
+                    user_context=None,
+                    target_mode=TargetMode.GOOGLE.value,
+                    created_at=t4,
+                )
+            )
+            await session.commit()
+
+        async with manager.session() as read_session:
+            read_repo = PromptRequestRepository(read_session)
+            assert await read_repo.count_all() == 4
+
+            # Literal % must match only "100%" and never "1000".
+            pct_rows = await read_repo.list_paginated(offset=0, limit=10, search_query="100%")
+            assert await read_repo.count_filtered(search_query="100%") == 1
+            assert len(pct_rows) == 1
+            assert "100%" in pct_rows[0].raw_prompt
+
+            # Literal _ must match only "task_profile" in user_context and never "taskXprofile".
+            underscore_rows = await read_repo.list_paginated(
+                offset=0,
+                limit=10,
+                search_query="task_profile",
+            )
+            assert await read_repo.count_filtered(search_query="task_profile") == 1
+            assert len(underscore_rows) == 1
+            assert underscore_rows[0].user_context == "Schema uses task_profile column."
+
+            # Literal backslash must match only the record containing C:\Projects\PromptForge.
+            backslash_rows = await read_repo.list_paginated(
+                offset=0,
+                limit=10,
+                search_query=r"C:\Projects",
+            )
+            assert await read_repo.count_filtered(search_query=r"C:\Projects") == 1
+            assert len(backslash_rows) == 1
+            assert backslash_rows[0].target_mode == TargetMode.ANTHROPIC.value
+
+            # Combined keyword + target_mode applies AND between filter dimensions.
+            combined_count = await read_repo.count_filtered(
+                search_query="fastapi",
+                target_mode=TargetMode.ANTHROPIC,
+            )
+            combined_rows = await read_repo.list_paginated(
+                offset=0,
+                limit=10,
+                search_query="fastapi",
+                target_mode=TargetMode.ANTHROPIC,
+            )
+            assert combined_count == 1
+            assert len(combined_rows) == 1
+            assert combined_rows[0].target_mode == TargetMode.ANTHROPIC.value
+    finally:
+        await manager.dispose()
+
+
+@pytest.mark.anyio
 async def test_service_rolls_back_on_commit_error_and_handles_not_found(
     migrated_sqlite_url: str,
+    default_db_guard: Callable[[], None],
 ) -> None:
     manager = DatabaseSessionManager(migrated_sqlite_url)
     try:
@@ -209,7 +331,13 @@ async def test_service_rolls_back_on_commit_error_and_handles_not_found(
                 await verify_service.list_prompt_requests(page=0, page_size=10)
             with pytest.raises(ValueError, match="page_size"):
                 await verify_service.list_prompt_requests(page=1, page_size=101)
+            with pytest.raises(ValueError, match="at most 200"):
+                await verify_service.list_prompt_requests(
+                    page=1,
+                    page_size=10,
+                    q="q" * (MAX_SEARCH_QUERY_LENGTH + 1),
+                )
     finally:
         await manager.dispose()
 
-    assert not DEFAULT_SQLITE_DB_PATH.exists()
+    default_db_guard()

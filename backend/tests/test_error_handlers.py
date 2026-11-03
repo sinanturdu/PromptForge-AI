@@ -1,6 +1,6 @@
 """Tests for Milestone 3C-2 RFC 9457 Problem Details error handling and OpenAPI schemas."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
@@ -12,7 +12,7 @@ from pydantic_settings import SettingsConfigDict
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import DEFAULT_SQLITE_DB_PATH, Settings, build_sqlite_url
+from app.core.config import Settings, build_sqlite_url
 from app.core.errors import (
     PROBLEM_JSON_MEDIA_TYPE,
     BadRequestError,
@@ -326,6 +326,7 @@ def test_app_error_hierarchy_and_sanitized_500_for_unexpected_and_db_failures(
 
 def test_openapi_schema_and_docs_accurately_represent_problem_details(
     error_test_client: TestClient,
+    default_db_guard: Callable[[], None],
 ) -> None:
     docs_resp = error_test_client.get("/docs")
     assert docs_resp.status_code == 200
@@ -348,4 +349,4 @@ def test_openapi_schema_and_docs_accurately_represent_problem_details(
     for status_key in ("404", "422", "500"):
         assert PROBLEM_JSON_MEDIA_TYPE in get_by_id_responses[status_key]["content"]
 
-    assert not DEFAULT_SQLITE_DB_PATH.exists()
+    default_db_guard()

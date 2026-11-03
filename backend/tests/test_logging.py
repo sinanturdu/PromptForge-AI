@@ -3,6 +3,7 @@
 import io
 import json
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
@@ -13,7 +14,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from pydantic_settings import SettingsConfigDict
 
-from app.core.config import DEFAULT_SQLITE_DB_PATH, Settings, build_sqlite_url
+from app.core.config import Settings, build_sqlite_url
 from app.core.logging import (
     APP_LOGGER_NAME,
     REDACTED_VALUE,
@@ -197,6 +198,7 @@ def test_sensitive_fields_credentials_tokens_and_prompts_are_redacted() -> None:
 def test_http_request_logs_never_include_raw_prompt_context_headers_or_query_string(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    default_db_guard: Callable[[], None],
 ) -> None:
     db_file = tmp_path / "log_privacy.db"
     db_url = build_sqlite_url(db_file)
@@ -246,4 +248,4 @@ def test_http_request_logs_never_include_raw_prompt_context_headers_or_query_str
     assert http_entry["status_code"] == 201
     assert isinstance(http_entry["duration_ms"], (int, float))
     assert http_entry["request_id"] == resp.headers["X-Request-ID"]
-    assert not DEFAULT_SQLITE_DB_PATH.exists()
+    default_db_guard()

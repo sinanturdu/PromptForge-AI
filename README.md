@@ -14,18 +14,18 @@
 
 ---
 
-## Mevcut Uygulama Durumu (Milestone 4B-1 — Tamamlandı)
+## Mevcut Uygulama Durumu (Milestone 4B-2 — Tamamlandı)
 
-> **Önemli Not:** Bu depo şu anda **Milestone 2A (Temel Altyapı)**, **Milestone 3A (Asenkron Veritabanı Bağlantı Temeli)**, **Milestone 3B (İlk Dört ORM Modeli & Alembic Göç Sistemi)**, **Milestone 3C (Prompt Yönetimi REST API, Yapılandırılmış Loglama, `X-Request-ID` ve RFC 9457 Problem Details)**, **Milestone 4A (İşlevsel Prompt Gönderim Arayüzü & Backend Entegrasyonu)** ve **Milestone 4B-1 (Prompt Geçmişi, Sunucu Taraflı Sayfalama ve Gezinme)** aşamalarını tamamlamıştır. Geçmiş listesinde gelişmiş arama ve filtreleme (**Milestone 4B-2**), değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues` — Milestone 7), LLM sağlayıcı entegrasyonu, AI ajanları (`PromptEngineerAgent`, `PromptCriticAgent`), `CanonicalPrompt` derleyicileri, token analizi ve sesli girdi (Speech-to-Text) özellikleri **henüz uygulanmamıştır**.
+> **Önemli Not:** Bu depo şu anda **Milestone 2A (Temel Altyapı)**, **Milestone 3A (Asenkron Veritabanı Bağlantı Temeli)**, **Milestone 3B (İlk Dört ORM Modeli & Alembic Göç Sistemi)**, **Milestone 3C (Prompt Yönetimi REST API, Yapılandırılmış Loglama, `X-Request-ID` ve RFC 9457 Problem Details)**, **Milestone 4A (İşlevsel Prompt Gönderim Arayüzü & Backend Entegrasyonu)**, **Milestone 4B-1 (Prompt Geçmişi, Sunucu Taraflı Sayfalama ve Gezinme)** ve **Milestone 4B-2 (Sunucu Taraflı Prompt Araması, Hedef Yapay Zekâ Filtreleme ve URL Durum Yönetimi)** aşamalarını tamamlamıştır. Değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues` — Milestone 7), LLM sağlayıcı entegrasyonu, AI ajanları (`PromptEngineerAgent`, `PromptCriticAgent`), `CanonicalPrompt` derleyicileri, token analizi ve sesli girdi (Speech-to-Text) özellikleri **henüz uygulanmamıştır**.
 
 **Şu anda çalışan bileşenler:**
 
 - `backend/` ve `frontend/` ayrımına sahip temiz monorepo yapısı
-- Python 3.12 ve `uv` ile yapılandırılmış FastAPI uygulaması (`GET /api/v1/health`, `POST/GET /api/v1/prompt-requests` ve otomatik OpenAPI dokümantasyonu `/docs`)
+- Python 3.12 ve `uv` ile yapılandırılmış FastAPI uygulaması (`GET /api/v1/health`, `POST/GET /api/v1/prompt-requests` — sunucu taraflı `q` anahtar kelime araması, `target_mode` filtreleme ve sayfalama destekli — ve otomatik OpenAPI dokümantasyonu `/docs`)
 - `pydantic-settings` ortam yapılandırması (`DATABASE_URL`, `LOG_LEVEL`, `MAX_REQUEST_BODY_BYTES`, CWD'den bağımsız `backend/data/promptforge.db` varsayılanı) ve SQLAlchemy 2.0 Async + `aiosqlite` oturum altyapısı
 - SQLAlchemy 2.0 `DeclarativeBase` (`app/db/base.py`), ilk dört temel ORM modeli (`PromptRequest`, `WorkflowRun`, `PromptVersion`, `AgentRun`) ve CWD'den bağımsız asenkron Alembic göç sistemi (`0001_initial_schema`)
 - Yapılandırılmış UTC JSON loglama, sunucu taraflı `X-Request-ID` izleme, HTTP gövde boyutu sınırı ve merkezi RFC 9457 Problem Details (`application/problem+json`) hata yönetimi
-- React 19, Vite 8, TypeScript (`strict`), Tailwind CSS v4, React Router ve TanStack Query ile geliştirilmiş Türkçe prompt gönderim formu (`/`), sunucu taraflı sayfalamalı ve URL durumlu prompt geçmişi sayfası (`/history`), mobil/masaüstü uyumlu üst gezinme çubuğu, UUID tabanlı prompt detay sayfası (`/prompt-requests/:id`), Problem Details uyumlu API istemcisi ve MSW destekli Vitest test paketi (canlı AI/LLM çağrısı içermez)
+- React 19, Vite 8, TypeScript (`strict`), Tailwind CSS v4, React Router ve TanStack Query ile geliştirilmiş Türkçe prompt gönderim formu (`/`), sunucu taraflı arama (`q`, ~350 ms debounce), hedef yapay zekâ ailesi filtreleme (`target_mode`), sayfalama ve tam URL durum senkronizasyonuna sahip prompt geçmişi sayfası (`/history`), mobil/masaüstü uyumlu üst gezinme çubuğu, filtre ve sayfa durumunu koruyan UUID tabanlı prompt detay sayfası (`/prompt-requests/:id`), Problem Details uyumlu API istemcisi ve MSW destekli Vitest test paketi (canlı AI/LLM çağrısı içermez)
 - Mimari dokümantasyon ([`docs/architecture.md`](./docs/architecture.md)) ve Mimari Karar Kayıtları ([`docs/adr/`](./docs/adr/README.md))
 - GitHub Actions CI iş akışı ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml))
 
@@ -76,8 +76,16 @@ PromptForge-AI/
 │   └── PULL_REQUEST_TEMPLATE.md
 ├── backend/
 │   ├── app/
-│   │   ├── api/v1/routes/system.py
-│   │   ├── core/config.py
+│   │   ├── api/
+│   │   │   ├── error_handlers.py
+│   │   │   ├── middleware.py
+│   │   │   └── v1/routes/
+│   │   │       ├── prompt_requests.py
+│   │   │       └── system.py
+│   │   ├── core/
+│   │   │   ├── config.py
+│   │   │   ├── errors.py
+│   │   │   └── logging.py
 │   │   ├── db/
 │   │   │   ├── base.py
 │   │   │   ├── migrations.py
@@ -88,6 +96,10 @@ PromptForge-AI/
 │   │   │   ├── prompt_request.py
 │   │   │   ├── prompt_version.py
 │   │   │   └── workflow_run.py
+│   │   ├── modules/prompts/
+│   │   │   ├── repository.py
+│   │   │   ├── schemas.py
+│   │   │   └── service.py
 │   │   └── main.py
 │   ├── migrations/
 │   │   ├── env.py
@@ -95,9 +107,15 @@ PromptForge-AI/
 │   │   └── versions/
 │   │       └── 0001_initial_schema.py
 │   ├── tests/
+│   │   ├── conftest.py
 │   │   ├── test_database.py
+│   │   ├── test_error_handlers.py
 │   │   ├── test_health.py
-│   │   └── test_migrations.py
+│   │   ├── test_logging.py
+│   │   ├── test_middleware.py
+│   │   ├── test_migrations.py
+│   │   ├── test_prompt_repository.py
+│   │   └── test_prompt_requests_api.py
 │   ├── .env.example
 │   ├── .python-version
 │   ├── alembic.ini
@@ -107,8 +125,12 @@ PromptForge-AI/
 ├── frontend/
 │   ├── public/
 │   ├── src/
+│   │   ├── app/
 │   │   ├── components/
 │   │   ├── config/
+│   │   ├── features/prompt-requests/
+│   │   ├── lib/
+│   │   ├── pages/
 │   │   ├── test/
 │   │   ├── App.tsx
 │   │   ├── index.css
@@ -167,7 +189,7 @@ uv run pytest tests/test_database.py -q
 uv run pytest tests/test_migrations.py -q
 uv run ruff check .
 uv run ruff format --check .
-uv run mypy app tests
+uv run mypy .
 ```
 
 ### Frontend Kurulumu ve Çalıştırma
@@ -206,8 +228,8 @@ npm run build
 | **Milestone 3B** | İlk dört ORM modeli (`prompt_requests`, `workflow_runs`, `prompt_versions`, `agent_runs`) ve Alembic göç altyapısı | Tamamlandı |
 | **Milestone 3C** | Prompt yönetimi API uç noktaları, yapılandırılmış JSON loglama, `X-Request-ID` ve RFC 9457 Problem Details hata yönetimi | Tamamlandı |
 | **Milestone 4A** | React Router, TanStack Query, Problem Details uyumlu API istemcisi, Türkçe prompt gönderim formu ve detay sayfası | Tamamlandı |
-| **Milestone 4B-1** | Kaydedilen prompt istekleri için sunucu taraflı sayfalamalı geçmiş arayüzü (`/history`), URL `?page=` durumu ve gezinme | **Tamamlandı** |
-| **Milestone 4B-2** | Prompt geçmişi için gelişmiş arama ve filtreleme kontrolleri | Planlandı |
+| **Milestone 4B-1** | Kaydedilen prompt istekleri için sunucu taraflı sayfalamalı geçmiş arayüzü (`/history`), URL `?page=` durumu ve gezinme | Tamamlandı |
+| **Milestone 4B-2** | Prompt geçmişi için sunucu taraflı anahtar kelime araması (`q`), hedef yapay zekâ filtreleme (`target_mode`) ve URL durum senkronizasyonu | **Tamamlandı** |
 | **Milestone 5** | Sağlayıcıdan bağımsız LLM katmanı, `FakeLLMProvider` ve ilk sağlayıcı entegrasyonu | Planlandı |
 | **Milestone 6** | `PromptEngineerAgent`, `CanonicalPrompt` ara temsili ve `GenericPromptRenderer` | Planlandı |
 | **Milestone 7** | Bağımsız `PromptCriticAgent` ve deterministik puanlama motoru | Planlandı |
