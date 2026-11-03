@@ -112,3 +112,46 @@ npm run typecheck    # TypeScript strict tip kontrolü (tsc -b)
 npm test             # Vitest + React Testing Library + MSW testleri (veritabanına dokunmaz)
 npm run build        # Üretim derlemesi doğrulaması (dist/)
 ```
+
+
+## Chromium E2E — Milestone 4C-2A
+
+E2E testleri gerçek React arayüzünü, Vite proxy’sini ve FastAPI/SQLite backend’ini kullanır; MSW kullanılmaz. Vitest yalnızca `src/**/*.test.{ts,tsx}` dosyalarını, Playwright ise `e2e/**/*.spec.ts` dosyalarını keşfeder.
+
+İlk kurulum (proje kökünden, Windows PowerShell veya Linux):
+
+```sh
+cd backend
+uv sync --frozen --python 3.12
+cd ../frontend
+npm ci
+npx playwright install chromium
+```
+
+Linux CI için Chromium sistem bağımlılıkları da gerekir: `npx playwright install --with-deps chromium`. Backend yorumlayıcısı Windows’ta `backend/.venv/Scripts/python.exe`, Linux’ta `backend/.venv/bin/python` konumundan doğrudan çalıştırılır; test komutu bağımlılık kurmaz.
+
+`frontend/` dizininden:
+
+```sh
+npm run test:e2e                     # Dört Chromium smoke testi
+npm run test:e2e -- --repeat-each=3   # Kararlılık kontrolü
+npm run test:e2e:ui                  # Etkileşimli Playwright test arayüzü
+npm run test:e2e:report              # Son HTML raporunu aç
+```
+
+### İzolasyon ve yaşam döngüsü
+
+- Her Playwright çalıştırmasında işletim sisteminin geçici dizininde benzersiz `promptforge-e2e-*` klasörü ve yeni `e2e.sqlite3` veritabanı oluşturulur. Backend başlatıcısı bu dizinin dışındaki veya mevcut bir veritabanını reddeder.
+- Mevcut Alembic göçleri yalnızca açıkça belirtilen bu veritabanına uygulanır. Uygulamanın `DATABASE_URL` değeri de aynı mutlak yola zorlanır. `backend/data/promptforge.db` ve `.env` dosyaları değiştirilmez.
+- Backend yalnızca `127.0.0.1:18080`, Vite yalnızca `127.0.0.1:15173` üzerinde çalışır. Dolu portlar hata üretir; mevcut geliştirme sunucuları yeniden kullanılmaz. Backend portu göçlerden önce bağlanır; sağlık yanıtında çalıştırmaya özel servis kimliği doğrulanır.
+- E2E Vite yapılandırması yerel `.env` dosyalarını okumaz; miras alınmış `VITE_API_BASE_URL` dahil API adresi ayarları test proxy’sine zorlanır.
+- Playwright global setup sunucuları başlatır ve teardown fonksiyonunu döndürür. Normal bitiş, test hatası veya setup hatasında Vite kapatılır, doğrudan başlatılmış Python işlemi sonlandırılır ve çıkışı beklendikten sonra yalnızca oluşturulan geçici klasör silinir. İşlemin zorla öldürülmesi veya sistem çökmesi teardown’u engelleyebilir; böyle bir durumda geçici klasör kalabilir, geliştirme veritabanına yönlendirme yapılmaz.
+- UI modunda aynı oturum boyunca sunucular açık kalır ve UI kapatılınca temizlenir. Testler veri yazmaz; her test ayrı browser context kullanır ve boş geçmiş testi sıraya bağımlı değildir. Gelecekte veri yazan senaryolar eklenirken ayrıca test başına veri izolasyonu gerekir.
+
+### Kapsam ve hata çıktıları
+
+Başlangıç kontrolleri, Yeni Prompt ↔ Prompt Geçmişi gezinmesi, 375 × 812 mobil görünüm ve boş geçmiş doğrulanır. Mobil test metin girişi, kaydet düğmesine kaydırma ve yatay taşma kontrolü yapar; kayıt göndermez.
+
+Yerel ve CI çalıştırmaları tek worker kullanır; tekrar deneme yoktur. Hata durumunda trace ve ekran görüntüsü `test-results/` altında tutulur. HTML raporu `playwright-report/` altında oluşur; raporlar ve geçici çıktılar Git tarafından yok sayılır. CI ayrı E2E işinde Chromium’u kurar, testleri çalıştırır ve raporları yedi gün saklar.
+
+Playwright yaşam döngüsü ve browser kurulumu: [global setup/teardown](https://playwright.dev/docs/test-global-setup-teardown), [browser kurulumu](https://playwright.dev/docs/browsers).

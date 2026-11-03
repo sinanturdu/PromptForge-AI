@@ -72,3 +72,38 @@ jobs:
 
       - name: Verify production build
         run: npm run build
+
+  e2e:
+    name: E2E (Chromium · isolated FastAPI + SQLite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: "frontend/package-lock.json"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+      - name: Prepare Python backend environment
+        working-directory: backend
+        run: uv sync --frozen --python 3.12
+      - run: npm ci
+      - name: Install Chromium and Linux system dependencies
+        run: npx playwright install --with-deps chromium
+      - name: Run E2E smoke tests
+        run: npm run test:e2e
+      - name: Upload browser report and failure artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 7
