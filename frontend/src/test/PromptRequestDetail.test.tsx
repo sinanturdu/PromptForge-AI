@@ -47,7 +47,7 @@ describe('Prompt request detail page and direct deep-link refresh behavior', () 
 
     // Honest non-AI message must be displayed; no fake scores or generated prompts.
     expect(
-      screen.getByText(/AI Optimizasyonu İlerleyen Aşamalarda Etkinleşecek/i),
+      screen.getByText(/AI optimizasyonu henüz etkin değildir/i),
     ).toBeInTheDocument()
 
     // Navigate back to the new prompt page.

@@ -25,7 +25,7 @@ export function ErrorAlert({
         <div className="flex flex-wrap items-start justify-between gap-2">
           <p className="font-semibold text-rose-200">{title}</p>
           {requestId ? (
-            <span className="rounded border border-rose-400/30 bg-rose-950/70 px-2 py-0.5 font-mono text-xs text-rose-200">
+            <span className="max-w-full break-all rounded border border-rose-400/30 bg-rose-950/70 px-2 py-0.5 font-mono text-xs text-rose-200">
               İstek Kimliği: {requestId}
             </span>
           ) : null}

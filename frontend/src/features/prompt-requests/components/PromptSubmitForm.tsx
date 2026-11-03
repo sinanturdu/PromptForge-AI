@@ -126,20 +126,18 @@ export function PromptSubmitForm() {
         void handleSubmit(event)
       }}
       aria-label="Prompt gönderim formu"
-      className="space-y-6 rounded-2xl border border-slate-800/90 bg-slate-900/60 p-5 shadow-lg shadow-slate-950/40 sm:p-6"
+      className="min-w-0 space-y-6 rounded-2xl border border-slate-800/90 bg-slate-900/60 p-5 sm:p-8"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-4">
         <div>
           <h2 className="text-base font-semibold text-slate-100">
-            Prompt İsteği ve Optimizasyon Tercihleri
+            Prompt bilgileri
           </h2>
           <p className="mt-0.5 text-xs text-slate-400">
-            Ham isteğinizi ve hedef model tercihlerinizi girerek kalıcı kayıt oluşturun.
+            Yıldız (*) işaretli alan zorunludur. Diğer tercihleri ihtiyacına göre belirleyebilirsin.
           </p>
         </div>
-        <span className="rounded-md border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-0.5 text-xs font-medium text-indigo-200">
-          POST /api/v1/prompt-requests
-        </span>
+
       </div>
 
       {submitError ? (
@@ -170,7 +168,7 @@ export function PromptSubmitForm() {
         <textarea
           id="raw-prompt"
           name="raw_prompt"
-          rows={6}
+          rows={8}
           required
           disabled={isSubmitting}
           value={values.rawPrompt}
@@ -182,7 +180,7 @@ export function PromptSubmitForm() {
               : 'raw-prompt-hint raw-prompt-counter'
           }
           placeholder="Örn: React ve FastAPI kullanarak ekip bazlı görev atamalarını destekleyen profesyonel bir proje yönetim uygulaması mimarisi tasarla."
-          className={`w-full rounded-xl border bg-slate-950/90 p-3.5 text-sm leading-relaxed text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-60 ${
+          className={`w-full rounded-xl border bg-slate-950/90 p-3.5 text-sm leading-relaxed text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-60 ${
             rawPromptError
               ? 'border-rose-500/70 focus:border-rose-400 focus:ring-rose-500/40'
               : 'border-slate-800 hover:border-slate-700 focus:border-indigo-500 focus:ring-indigo-500/40'
@@ -225,7 +223,7 @@ export function PromptSubmitForm() {
               : 'user-context-hint user-context-counter'
           }
           placeholder="Örn: Uygulama SQLite ile başlayıp ileride PostgreSQL'e taşınacak; arayüz dili Türkçe olmalı."
-          className={`w-full rounded-xl border bg-slate-950/90 p-3.5 text-sm leading-relaxed text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-60 ${
+          className={`w-full rounded-xl border bg-slate-950/90 p-3.5 text-sm leading-relaxed text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-60 ${
             userContextError
               ? 'border-rose-500/70 focus:border-rose-400 focus:ring-rose-500/40'
               : 'border-slate-800 hover:border-slate-700 focus:border-indigo-500 focus:ring-indigo-500/40'
@@ -242,8 +240,7 @@ export function PromptSubmitForm() {
       <fieldset disabled={isSubmitting} className="space-y-2.5">
         <legend className="text-sm font-medium text-slate-100">Hedef Yapay Zekâ Ailesi</legend>
         <p className="text-xs text-slate-400">
-          Bu tercih, ilerleyen sürümlerde prompt derleyicisinin hedefleyeceği formatı belirler;
-          seçilen sağlayıcı üzerinde doğrudan model çalıştırmaz.
+          Promptunu kullanmayı planladığın yapay zekâ ailesini seç. Bu seçim bir AI çağrısı başlatmaz.
         </p>
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
           {TARGET_AI_FAMILY_OPTIONS.map((option) => {
@@ -299,6 +296,7 @@ export function PromptSubmitForm() {
             value={values.outputLanguage}
             onChange={(event) => updateField('outputLanguage', event.target.value)}
             aria-invalid={Boolean(outputLanguageError)}
+            aria-describedby={outputLanguageError ? "output-language-error" : undefined}
             className="w-full rounded-xl border border-slate-800 bg-slate-950/90 px-3.5 py-2.5 text-sm text-slate-100 hover:border-slate-700 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {OUTPUT_LANGUAGE_OPTIONS.map((lang) => (
@@ -308,10 +306,10 @@ export function PromptSubmitForm() {
             ))}
           </select>
           <p className="text-xs text-slate-400">
-            Optimize edilecek nihai prompt çıktısı için hedeflenen dil tercihi.
+            Prompt için tercih ettiğin çıktı dili kaydına eklenir.
           </p>
           {outputLanguageError ? (
-            <p className="text-xs font-medium text-rose-300">{outputLanguageError}</p>
+            <p id="output-language-error" className="text-xs font-medium text-rose-300">{outputLanguageError}</p>
           ) : null}
         </div>
 
@@ -320,7 +318,7 @@ export function PromptSubmitForm() {
             <label htmlFor="task-profile" className="block text-sm font-medium text-slate-200">
               Görev Profili <span className="text-xs font-normal text-slate-400">(İsteğe Bağlı)</span>
             </label>
-            <span className="font-mono text-[11px] text-slate-500">
+            <span className="font-mono text-[11px] text-slate-400">
               {values.taskProfile.trim().length}/{MAX_TASK_PROFILE_LENGTH}
             </span>
           </div>
@@ -332,8 +330,9 @@ export function PromptSubmitForm() {
             value={values.taskProfile}
             onChange={(event) => updateField('taskProfile', event.target.value)}
             aria-invalid={Boolean(taskProfileError)}
+            aria-describedby={taskProfileError ? "task-profile-error" : undefined}
             placeholder="Örn: software_development"
-            className={`w-full rounded-xl border bg-slate-950/90 px-3.5 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-60 ${
+            className={`w-full rounded-xl border bg-slate-950/90 px-3.5 py-2.5 text-sm text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-60 ${
               taskProfileError
                 ? 'border-rose-500/70 focus:border-rose-400 focus:ring-rose-500/40'
                 : 'border-slate-800 hover:border-slate-700 focus:border-indigo-500 focus:ring-indigo-500/40'
@@ -350,7 +349,7 @@ export function PromptSubmitForm() {
                   onClick={() =>
                     updateField('taskProfile', isSelected ? '' : suggestion.value)
                   }
-                  className={`rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 disabled:cursor-not-allowed disabled:opacity-60 ${
+                  className={`min-h-9 rounded-lg border px-3 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 disabled:cursor-not-allowed disabled:opacity-60 ${
                     isSelected
                       ? 'border-indigo-500/50 bg-indigo-500/20 text-indigo-200'
                       : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700 hover:text-slate-200'
@@ -362,13 +361,14 @@ export function PromptSubmitForm() {
             })}
           </div>
           {taskProfileError ? (
-            <p className="text-xs font-medium text-rose-300">{taskProfileError}</p>
+            <p id="task-profile-error" className="text-xs font-medium text-rose-300">{taskProfileError}</p>
           ) : null}
         </div>
       </div>
 
       {/* 6, 7 & 8. Detail and Reasoning Preferences */}
-      <div className="space-y-5 border-t border-slate-800/80 pt-5">
+      <section aria-labelledby="preferences-heading" className="space-y-5 border-t border-slate-800/80 pt-5">
+        <h2 id="preferences-heading" className="text-base font-semibold text-slate-100">Detay tercihleri</h2>
         {/* Prompt Detail Level */}
         <fieldset disabled={isSubmitting} className="space-y-2">
           <legend className="flex w-full flex-wrap items-baseline justify-between gap-2 text-sm font-medium text-slate-200">
@@ -377,13 +377,13 @@ export function PromptSubmitForm() {
               {values.promptDetailLevel}
             </span>
           </legend>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-3">
             {PROMPT_DETAIL_OPTIONS.map((option) => {
               const isSelected = values.promptDetailLevel === option.value
               return (
                 <label
                   key={option.value}
-                  className={`cursor-pointer rounded-xl border px-3 py-2.5 text-center text-xs font-medium transition-all focus-within:ring-2 focus-within:ring-indigo-400 ${
+                  className={`cursor-pointer flex min-h-11 items-center justify-center rounded-xl border px-3 py-2.5 text-center text-xs font-medium transition-all focus-within:ring-2 focus-within:ring-indigo-400 ${
                     isSelected
                       ? 'border-indigo-500/70 bg-indigo-500/15 text-indigo-100 ring-1 ring-indigo-500/30'
                       : 'border-slate-800 bg-slate-950/70 text-slate-300 hover:border-slate-700 hover:text-slate-100'
@@ -415,13 +415,13 @@ export function PromptSubmitForm() {
               {values.responseDetailPreference}
             </span>
           </legend>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-3">
             {RESPONSE_DETAIL_OPTIONS.map((option) => {
               const isSelected = values.responseDetailPreference === option.value
               return (
                 <label
                   key={option.value}
-                  className={`cursor-pointer rounded-xl border px-3 py-2.5 text-center text-xs font-medium transition-all focus-within:ring-2 focus-within:ring-indigo-400 ${
+                  className={`cursor-pointer flex min-h-11 items-center justify-center rounded-xl border px-3 py-2.5 text-center text-xs font-medium transition-all focus-within:ring-2 focus-within:ring-indigo-400 ${
                     isSelected
                       ? 'border-indigo-500/70 bg-indigo-500/15 text-indigo-100 ring-1 ring-indigo-500/30'
                       : 'border-slate-800 bg-slate-950/70 text-slate-300 hover:border-slate-700 hover:text-slate-100'
@@ -462,7 +462,7 @@ export function PromptSubmitForm() {
               return (
                 <label
                   key={option.value}
-                  className={`cursor-pointer rounded-xl border px-3 py-2.5 text-center text-xs font-medium transition-all focus-within:ring-2 focus-within:ring-indigo-400 ${
+                  className={`cursor-pointer flex min-h-11 items-center justify-center rounded-xl border px-3 py-2.5 text-center text-xs font-medium transition-all focus-within:ring-2 focus-within:ring-indigo-400 ${
                     isSelected
                       ? 'border-indigo-500/70 bg-indigo-500/15 text-indigo-100 ring-1 ring-indigo-500/30'
                       : 'border-slate-800 bg-slate-950/70 text-slate-300 hover:border-slate-700 hover:text-slate-100'
@@ -485,18 +485,18 @@ export function PromptSubmitForm() {
           </div>
           <p className="text-xs text-slate-400">
             {activeReasoningPref.description}{' '}
-            <span className="text-slate-500">
+            <span className="text-slate-400">
               (Bu ayar üretilecek prompttaki akıl yürütme yönlendirme tercihini belirtir; herhangi
               bir sağlayıcının çıkarım bütçesini doğrudan kontrol etmez.)
             </span>
           </p>
         </fieldset>
-      </div>
+      </section>
 
       {/* Form Submit Footer */}
       <div className="flex flex-col gap-3 border-t border-slate-800/80 pt-4 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs text-slate-400">
-          Kaydedilen istek veritabanında saklanır ve detay sayfasına yönlendirilirsiniz.
+          Kaydettikten sonra promptunun detaylarını görüntüleyebilirsin.
         </p>
 
         <button

@@ -145,8 +145,7 @@ export function PromptRequestDetailPage() {
             Prompt isteğiniz başarıyla kaydedildi.
           </p>
           <p className="mt-0.5 text-xs text-emerald-100/90">
-            Aşağıdaki bilgiler doğrudan sunucu veritabanından (UUID ile) okunmuştur; sayfayı
-            yenilediğinizde de bu bağlantıyı kullanabilirsiniz.
+            Bu bağlantıyla kaydını daha sonra yeniden görüntüleyebilirsin.
           </p>
         </div>
       ) : null}
@@ -176,12 +175,12 @@ export function PromptRequestDetailPage() {
       {/* Main Content Grid */}
       <div className="grid gap-6 lg:grid-cols-12">
         {/* Raw Prompt & Optional Context */}
-        <div className="space-y-6 lg:col-span-7">
+        <div className="min-w-0 space-y-6 lg:col-span-7">
           <section
             aria-labelledby="detail-raw-prompt-heading"
             className="space-y-3 rounded-2xl border border-slate-800/90 bg-slate-900/60 p-5 sm:p-6"
           >
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
               <h2 id="detail-raw-prompt-heading" className="text-sm font-semibold text-slate-100">
                 Orijinal Ham Prompt
               </h2>
@@ -198,7 +197,7 @@ export function PromptRequestDetailPage() {
             aria-labelledby="detail-user-context-heading"
             className="space-y-3 rounded-2xl border border-slate-800/90 bg-slate-900/60 p-5 sm:p-6"
           >
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
               <h2
                 id="detail-user-context-heading"
                 className="text-sm font-semibold text-slate-100"
@@ -224,7 +223,7 @@ export function PromptRequestDetailPage() {
         </div>
 
         {/* Saved Preferences & Honest AI Milestone Notice */}
-        <div className="space-y-6 lg:col-span-5">
+        <div className="min-w-0 space-y-6 lg:col-span-5">
           <section
             aria-labelledby="detail-preferences-heading"
             className="space-y-4 rounded-2xl border border-slate-800/90 bg-slate-900/60 p-5 sm:p-6"
@@ -233,11 +232,11 @@ export function PromptRequestDetailPage() {
               id="detail-preferences-heading"
               className="border-b border-slate-800/80 pb-3 text-sm font-semibold text-slate-100"
             >
-              Kaydedilen Optimizasyon Tercihleri
+              Kaydedilen Tercihler
             </h2>
 
             <dl className="space-y-3.5 text-sm">
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-800/80 bg-slate-950/70 px-3.5 py-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800/80 bg-slate-950/70 px-3.5 py-2.5">
                 <dt className="text-xs font-medium text-slate-400">Hedef Yapay Zekâ Ailesi</dt>
                 <dd className="flex items-center gap-2 font-medium text-slate-100">
                   <span>{targetMeta.label}</span>
@@ -247,21 +246,21 @@ export function PromptRequestDetailPage() {
                 </dd>
               </div>
 
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-800/80 bg-slate-950/70 px-3.5 py-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800/80 bg-slate-950/70 px-3.5 py-2.5">
                 <dt className="text-xs font-medium text-slate-400">Çıktı Dili</dt>
                 <dd className="font-medium text-slate-100">
                   {formatOutputLanguage(record.output_language)}
                 </dd>
               </div>
 
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-800/80 bg-slate-950/70 px-3.5 py-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800/80 bg-slate-950/70 px-3.5 py-2.5">
                 <dt className="text-xs font-medium text-slate-400">Görev Profili</dt>
-                <dd className="font-mono text-xs text-slate-200">
+                <dd className="min-w-0 break-all font-mono text-xs text-slate-200">
                   {record.task_profile ?? 'Belirtilmedi'}
                 </dd>
               </div>
 
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-800/80 bg-slate-950/70 px-3.5 py-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800/80 bg-slate-950/70 px-3.5 py-2.5">
                 <dt className="text-xs font-medium text-slate-400">Prompt Detay Seviyesi</dt>
                 <dd className="flex items-center gap-2 font-medium text-slate-100">
                   <span>{promptDetailMeta.label}</span>
@@ -271,7 +270,7 @@ export function PromptRequestDetailPage() {
                 </dd>
               </div>
 
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-800/80 bg-slate-950/70 px-3.5 py-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800/80 bg-slate-950/70 px-3.5 py-2.5">
                 <dt className="text-xs font-medium text-slate-400">Yanıt Detay Tercihi</dt>
                 <dd className="flex items-center gap-2 font-medium text-slate-100">
                   <span>{responseDetailMeta.label}</span>
@@ -281,7 +280,7 @@ export function PromptRequestDetailPage() {
                 </dd>
               </div>
 
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-800/80 bg-slate-950/70 px-3.5 py-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800/80 bg-slate-950/70 px-3.5 py-2.5">
                 <dt className="text-xs font-medium text-slate-400">Akıl Yürütme Tercihi</dt>
                 <dd className="flex items-center gap-2 font-medium text-slate-100">
                   <span>{reasoningMeta.label}</span>
@@ -293,23 +292,9 @@ export function PromptRequestDetailPage() {
             </dl>
           </section>
 
-          <section
-            aria-label="AI optimizasyon durumu bilgilendirmesi"
-            className="space-y-2 rounded-2xl border border-indigo-500/30 bg-indigo-950/30 p-5"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold text-indigo-200">
-                AI Optimizasyonu İlerleyen Aşamalarda Etkinleşecek
-              </h2>
-              <span className="rounded border border-indigo-400/30 bg-indigo-500/15 px-2 py-0.5 text-[11px] font-medium text-indigo-200">
-                M5–M8.6
-              </span>
-            </div>
-            <p className="text-xs leading-relaxed text-slate-300">
-              Bu sayfada yalnızca veritabanına kaydedilmiş ham prompt ve kullanıcı tercihleri
-              gösterilmektedir. Prompt Engineer ile CanonicalPrompt üretimi, hedef modele göre
-              derlenmiş çıktı, bağımsız Prompt Critic değerlendirme puanları ve otomatik revizyon
-              geçmişi sonraki kilometre taşlarında eklenecektir.
+          <section aria-label="AI optimizasyon durumu bilgilendirmesi" className="rounded-2xl border border-slate-800/90 bg-slate-900/50 p-5">
+            <p className="text-sm leading-relaxed text-slate-400">
+              Bu kayıt, isteğini ve tercihlerini içerir. AI optimizasyonu henüz etkin değildir.
             </p>
           </section>
         </div>
