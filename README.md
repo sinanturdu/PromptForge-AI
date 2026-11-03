@@ -14,9 +14,9 @@
 
 ---
 
-## Mevcut Uygulama Durumu (Milestone 4A — Tamamlandı)
+## Mevcut Uygulama Durumu (Milestone 4B-1 — Tamamlandı)
 
-> **Önemli Not:** Bu depo şu anda **Milestone 2A (Temel Altyapı)**, **Milestone 3A (Asenkron Veritabanı Bağlantı Temeli)**, **Milestone 3B (İlk Dört ORM Modeli & Alembic Göç Sistemi)**, **Milestone 3C (Prompt Yönetimi REST API, Yapılandırılmış Loglama, `X-Request-ID` ve RFC 9457 Problem Details)** ve **Milestone 4A (İşlevsel Prompt Gönderim Arayüzü & Backend Entegrasyonu)** aşamalarını tamamlamıştır. Prompt geçmişi listeleme ekranı (**Milestone 4B**), değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues` — Milestone 7), LLM sağlayıcı entegrasyonu, AI ajanları (`PromptEngineerAgent`, `PromptCriticAgent`), `CanonicalPrompt` derleyicileri, token analizi ve sesli girdi (Speech-to-Text) özellikleri **henüz uygulanmamıştır**.
+> **Önemli Not:** Bu depo şu anda **Milestone 2A (Temel Altyapı)**, **Milestone 3A (Asenkron Veritabanı Bağlantı Temeli)**, **Milestone 3B (İlk Dört ORM Modeli & Alembic Göç Sistemi)**, **Milestone 3C (Prompt Yönetimi REST API, Yapılandırılmış Loglama, `X-Request-ID` ve RFC 9457 Problem Details)**, **Milestone 4A (İşlevsel Prompt Gönderim Arayüzü & Backend Entegrasyonu)** ve **Milestone 4B-1 (Prompt Geçmişi, Sunucu Taraflı Sayfalama ve Gezinme)** aşamalarını tamamlamıştır. Geçmiş listesinde gelişmiş arama ve filtreleme (**Milestone 4B-2**), değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues` — Milestone 7), LLM sağlayıcı entegrasyonu, AI ajanları (`PromptEngineerAgent`, `PromptCriticAgent`), `CanonicalPrompt` derleyicileri, token analizi ve sesli girdi (Speech-to-Text) özellikleri **henüz uygulanmamıştır**.
 
 **Şu anda çalışan bileşenler:**
 
@@ -25,7 +25,7 @@
 - `pydantic-settings` ortam yapılandırması (`DATABASE_URL`, `LOG_LEVEL`, `MAX_REQUEST_BODY_BYTES`, CWD'den bağımsız `backend/data/promptforge.db` varsayılanı) ve SQLAlchemy 2.0 Async + `aiosqlite` oturum altyapısı
 - SQLAlchemy 2.0 `DeclarativeBase` (`app/db/base.py`), ilk dört temel ORM modeli (`PromptRequest`, `WorkflowRun`, `PromptVersion`, `AgentRun`) ve CWD'den bağımsız asenkron Alembic göç sistemi (`0001_initial_schema`)
 - Yapılandırılmış UTC JSON loglama, sunucu taraflı `X-Request-ID` izleme, HTTP gövde boyutu sınırı ve merkezi RFC 9457 Problem Details (`application/problem+json`) hata yönetimi
-- React 19, Vite 8, TypeScript (`strict`), Tailwind CSS v4, React Router ve TanStack Query ile geliştirilmiş Türkçe prompt gönderim formu (`/`), UUID tabanlı prompt detay sayfası (`/prompt-requests/:id`), Problem Details uyumlu API istemcisi ve MSW destekli Vitest test paketi (canlı AI/LLM çağrısı içermez)
+- React 19, Vite 8, TypeScript (`strict`), Tailwind CSS v4, React Router ve TanStack Query ile geliştirilmiş Türkçe prompt gönderim formu (`/`), sunucu taraflı sayfalamalı ve URL durumlu prompt geçmişi sayfası (`/history`), mobil/masaüstü uyumlu üst gezinme çubuğu, UUID tabanlı prompt detay sayfası (`/prompt-requests/:id`), Problem Details uyumlu API istemcisi ve MSW destekli Vitest test paketi (canlı AI/LLM çağrısı içermez)
 - Mimari dokümantasyon ([`docs/architecture.md`](./docs/architecture.md)) ve Mimari Karar Kayıtları ([`docs/adr/`](./docs/adr/README.md))
 - GitHub Actions CI iş akışı ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml))
 
@@ -205,8 +205,9 @@ npm run build
 | **Milestone 3A** | `pydantic-settings` yapılandırması, SQLite + SQLAlchemy 2.0 Async motoru ve oturum yönetimi | Tamamlandı |
 | **Milestone 3B** | İlk dört ORM modeli (`prompt_requests`, `workflow_runs`, `prompt_versions`, `agent_runs`) ve Alembic göç altyapısı | Tamamlandı |
 | **Milestone 3C** | Prompt yönetimi API uç noktaları, yapılandırılmış JSON loglama, `X-Request-ID` ve RFC 9457 Problem Details hata yönetimi | Tamamlandı |
-| **Milestone 4A** | React Router, TanStack Query, Problem Details uyumlu API istemcisi, Türkçe prompt gönderim formu ve detay sayfası | **Tamamlandı** |
-| **Milestone 4B** | Kaydedilen prompt istekleri için geçmiş listeleme ve sayfalama arayüzü | Planlandı |
+| **Milestone 4A** | React Router, TanStack Query, Problem Details uyumlu API istemcisi, Türkçe prompt gönderim formu ve detay sayfası | Tamamlandı |
+| **Milestone 4B-1** | Kaydedilen prompt istekleri için sunucu taraflı sayfalamalı geçmiş arayüzü (`/history`), URL `?page=` durumu ve gezinme | **Tamamlandı** |
+| **Milestone 4B-2** | Prompt geçmişi için gelişmiş arama ve filtreleme kontrolleri | Planlandı |
 | **Milestone 5** | Sağlayıcıdan bağımsız LLM katmanı, `FakeLLMProvider` ve ilk sağlayıcı entegrasyonu | Planlandı |
 | **Milestone 6** | `PromptEngineerAgent`, `CanonicalPrompt` ara temsili ve `GenericPromptRenderer` | Planlandı |
 | **Milestone 7** | Bağımsız `PromptCriticAgent` ve deterministik puanlama motoru | Planlandı |

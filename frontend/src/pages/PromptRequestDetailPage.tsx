@@ -1,6 +1,7 @@
 import { Link, useLocation, useParams } from 'react-router'
 import { ROUTES } from '../app/routes'
 import { ErrorAlert } from '../components/common/ErrorAlert'
+import { formatPromptTimestamp } from '../features/prompt-requests/formatters'
 import { usePromptRequestQuery } from '../features/prompt-requests/hooks'
 import {
   formatOutputLanguage,
@@ -12,17 +13,7 @@ import {
 
 interface NavigationLocationState {
   readonly justCreated?: boolean
-}
-
-function formatCreatedTimestamp(isoTimestamp: string): string {
-  const parsed = new Date(isoTimestamp)
-  if (Number.isNaN(parsed.getTime())) {
-    return isoTimestamp
-  }
-  return new Intl.DateTimeFormat('tr-TR', {
-    dateStyle: 'long',
-    timeStyle: 'medium',
-  }).format(parsed)
+  readonly fromHistoryPath?: string
 }
 
 export function PromptRequestDetailPage() {
@@ -30,6 +21,11 @@ export function PromptRequestDetailPage() {
   const location = useLocation()
   const navState = location.state as NavigationLocationState | null
   const justCreated = Boolean(navState?.justCreated)
+  const historyReturnPath =
+    typeof navState?.fromHistoryPath === 'string' &&
+    navState.fromHistoryPath.startsWith(ROUTES.promptHistory)
+      ? navState.fromHistoryPath
+      : ROUTES.promptHistory
 
   const { data: record, error, isLoading, refetch } = usePromptRequestQuery(id)
 
@@ -57,12 +53,18 @@ export function PromptRequestDetailPage() {
   if (error || !record) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            to={historyReturnPath}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/80 px-4 py-2 text-xs font-medium text-slate-200 transition-colors hover:border-slate-700 hover:bg-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+          >
+            ← Prompt Geçmişine Dön
+          </Link>
           <Link
             to={ROUTES.newPrompt}
             className="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/80 px-4 py-2 text-xs font-medium text-slate-200 transition-colors hover:border-slate-700 hover:bg-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
           >
-            ← Yeni Prompt İsteği Oluştur
+            + Yeni Prompt İsteği Oluştur
           </Link>
         </div>
 
@@ -115,12 +117,21 @@ export function PromptRequestDetailPage() {
           </h1>
         </div>
 
-        <Link
-          to={ROUTES.newPrompt}
-          className="inline-flex self-start rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 sm:self-center"
-        >
-          + Yeni Prompt İsteği Oluştur
-        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            to={historyReturnPath}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900/90 px-4 py-2.5 text-xs font-semibold text-slate-200 transition-colors hover:border-slate-600 hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+          >
+            ← Prompt Geçmişine Dön
+          </Link>
+
+          <Link
+            to={ROUTES.newPrompt}
+            className="inline-flex items-center rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+          >
+            + Yeni Prompt İsteği Oluştur
+          </Link>
+        </div>
       </div>
 
       {/* Optional Post-Submit Confirmation Banner */}
@@ -156,7 +167,7 @@ export function PromptRequestDetailPage() {
             Oluşturulma Zamanı
           </span>
           <p className="text-sm text-slate-100">
-            <time dateTime={record.created_at}>{formatCreatedTimestamp(record.created_at)}</time>
+            <time dateTime={record.created_at}>{formatPromptTimestamp(record.created_at)}</time>
           </p>
         </div>
       </section>
