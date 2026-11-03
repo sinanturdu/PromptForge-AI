@@ -1,0 +1,185 @@
+# PromptForge AI
+
+**PromptForge AI**, sıradan kullanıcı isteklerini yapılandırılmış, bağımsız olarak değerlendirilmiş ve hedef yapay zekâ modeline uygun biçimde derlenmiş yüksek kaliteli promptlara dönüştürmek üzere tasarlanmış modüler çoklu ajan (multi-agent) yazılım platformudur.
+
+---
+
+## Temel Hedefler
+
+- Ham kullanıcı isteklerindeki belirsizlikleri ve eksik gereksinimleri tespit ederek niyeti koruyan yapılandırılmış promptlar (`CanonicalPrompt`) üretmek
+- Üretilen promptları ayrı bir **Prompt Critic** ajanıyla bağımsız olarak denetlemek ve kod tabanlı deterministik puanlama (100 üzerinden) uygulamak
+- En fazla **3 değerlendirme turu** (`evaluation_round` 1–3) ile sınırlı, kontrollü bir otomatik revizyon döngüsü işletmek
+- Deterministik derleyiciler (Prompt Renderers) aracılığıyla **Universal**, **ChatGPT / GPT**, **Claude** ve **Gemini** hedeflerine uygun çıktılar üretmek
+- Uzun vadede yazılım projelerini planlayan, geliştiren, test eden ve güvenlik açısından inceleyen uzman yapay zekâ ajanlarını koordine eden bir platforma dönüşmek
+
+---
+
+## Mevcut Uygulama Durumu (Milestone 2A — Tamamlandı)
+
+> **Önemli Not:** Bu depo şu anda **Milestone 2A (Temel Altyapı)** aşamasındadır. Veritabanı modelleri, LLM sağlayıcı entegrasyonu, AI ajanları, `CanonicalPrompt` derleyicileri, token analizi ve sesli girdi (Speech-to-Text) özellikleri **henüz uygulanmamıştır** ve aşağıdaki yol haritasına göre sonraki milestone'larda eklenecektir.
+
+**Şu anda çalışan bileşenler:**
+
+- `backend/` ve `frontend/` ayrımına sahip temiz monorepo yapısı
+- Python 3.12 ve `uv` ile yapılandırılmış FastAPI uygulaması (`GET /api/v1/health` ve otomatik OpenAPI dokümantasyonu `/docs`)
+- Backend otomatik testleri (`pytest`), statik tip kontrolü (`mypy --strict`) ve kod kalitesi kontrolleri (`ruff`)
+- React, Vite, TypeScript (`strict`) ve Tailwind CSS (Vite eklentisi) ile oluşturulmuş koyu temalı, duyarlı başlangıç arayüzü ve birim testleri (`vitest`)
+- Mimari dokümantasyon ([`docs/architecture.md`](./docs/architecture.md)) ve Mimari Karar Kayıtları ([`docs/adr/`](./docs/adr/README.md))
+- GitHub Actions CI iş akışı ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml))
+
+---
+
+## Teknoloji Yığını
+
+| Katman | Teknolojiler |
+|---|---|
+| **Frontend** | React 19, Vite 8, TypeScript (`strict`), Tailwind CSS v4 (`@tailwindcss/vite`), ESLint, Vitest |
+| **Backend** | Python 3.12, FastAPI, Pydantic v2, Uvicorn, `uv`, Ruff, mypy, pytest |
+| **Veritabanı (Planlanan — M3)** | SQLite (ilk MVP), PostgreSQL uyumlu SQLAlchemy 2.0 Async + Alembic mimarisi |
+| **AI Katmanı (Planlanan — M5+)** | Sağlayıcıdan bağımsız `LLMProvider` katmanı, `FakeLLMProvider` ve yapılandırılabilir model/ajan ayrımı |
+
+---
+
+## Planlanan Yapay Zekâ Ajanları
+
+**İlk MVP Çekirdeği (M6 – M8.6):**
+
+1. **Prompt Engineer Agent** (`create` ve `revise` operasyonları)
+2. **Prompt Critic / Evaluator Agent** (bağımsız değerlendirme)
+3. **Deterministik Revizyon İş Akışı (`RevisionWorkflow`)** ve hedefe özgü **Prompt Renderers**
+
+**Uzun Vadeli Platform Vizyonu (Post-MVP / M10+):**
+
+4. Revision Agent (özel revizyon stratejileri)
+5. Master Prompt Architect Agent
+6. Project Manager Agent
+7. System Architect Agent
+8. Frontend Development Agent
+9. Backend Development Agent
+10. Database Architect Agent
+11. QA / Testing Agent
+12. Security Review Agent
+13. Marketing & Market Research Agent
+14. Main Orchestrator Agent
+
+---
+
+## Depo Yapısı
+
+```text
+PromptForge-AI/
+├── .github/
+│   ├── workflows/
+│   │   └── ci.yml
+│   └── PULL_REQUEST_TEMPLATE.md
+├── backend/
+│   ├── app/
+│   │   ├── api/v1/routes/system.py
+│   │   ├── core/config.py
+│   │   └── main.py
+│   ├── tests/
+│   │   └── test_health.py
+│   ├── .env.example
+│   ├── .python-version
+│   ├── pyproject.toml
+│   ├── uv.lock
+│   └── README.md
+├── frontend/
+│   ├── public/
+│   ├── src/
+│   │   ├── components/
+│   │   ├── config/
+│   │   ├── test/
+│   │   ├── App.tsx
+│   │   ├── index.css
+│   │   └── main.tsx
+│   ├── .env.example
+│   ├── eslint.config.js
+│   ├── index.html
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── vite.config.ts
+│   └── README.md
+├── docs/
+│   ├── architecture.md
+│   └── adr/
+├── .editorconfig
+├── .gitattributes
+├── .gitignore
+└── README.md
+```
+
+---
+
+## Kurulum ve Çalıştırma
+
+### Ön Koşullar
+
+- **Python 3.12** ve **[uv](https://docs.astral.sh/uv/)**
+- **Node.js 22.12+** (geliştirme ortamı: Node.js 24.11.1) ve **npm**
+
+### Backend Kurulumu ve Çalıştırma
+
+```powershell
+cd backend
+
+# Sanal ortamı (.venv) oluştur ve bağımlılıkları kur
+uv sync --python 3.12
+
+# Geliştirme sunucusunu başlat (http://127.0.0.1:8000)
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+- Sağlık kontrolü: `http://127.0.0.1:8000/api/v1/health`
+- Swagger UI (OpenAPI): `http://127.0.0.1:8000/docs`
+
+**Backend doğrulama komutları:**
+
+```powershell
+cd backend
+uv run pytest
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy app tests
+```
+
+### Frontend Kurulumu ve Çalıştırma
+
+```powershell
+cd frontend
+
+# Bağımlılıkları kur
+npm install
+
+# Geliştirme sunucusunu başlat (http://127.0.0.1:5173)
+npm run dev
+```
+
+**Frontend doğrulama komutları:**
+
+```powershell
+cd frontend
+npm run typecheck
+npm run lint
+npm test
+npm run build
+```
+
+---
+
+## Geliştirme Yol Haritası
+
+| Aşama | Başlık | Durum |
+|---|---|---|
+| **Milestone 1** | Mimari analiz ve teknik planlama | Tamamlandı |
+| **Milestone 2A** | Monorepo, backend/frontend temeli, test/lint/CI ve mimari dokümantasyon | **Tamamlandı** |
+| **Milestone 3** | Backend temeli, yapılandırma, loglama, hata yönetimi ve SQLite şeması | Planlandı |
+| **Milestone 4** | Frontend yönlendirme, API istemcisi ve prompt gönderim arayüzü | Planlandı |
+| **Milestone 5** | Sağlayıcıdan bağımsız LLM katmanı, `FakeLLMProvider` ve ilk sağlayıcı entegrasyonu | Planlandı |
+| **Milestone 6** | `PromptEngineerAgent`, `CanonicalPrompt` ara temsili ve `GenericPromptRenderer` | Planlandı |
+| **Milestone 7** | Bağımsız `PromptCriticAgent` ve deterministik puanlama motoru | Planlandı |
+| **Milestone 8** | En fazla 3 değerlendirme turlu otomatik revizyon iş akışı | Planlandı |
+| **Milestone 8.5** | Hedefe özgü derleyiciler (`openai`, `anthropic`, `google`), hedef seçici ve hedef farkındalıklı değerlendirme | Planlandı |
+| **Milestone 8.6** | Prompt detay seviyesi, yanıt detayı, akıl yürütme tercihleri ve görev bazlı politikalar | Planlandı |
+| **Milestone 9** | Uçtan uca testler, değerlendirme kalibrasyonu ve ilk MVP sürümü (`v0.1.0`) | Planlandı |
+| **Milestone 10+** | Sesli girdi (Speech-to-Text), ek LLM sağlayıcıları, token analizi motoru, doğrudan reasoning API kontrolleri, projeler/auth ve ek uzman ajanlar | Planlandı |

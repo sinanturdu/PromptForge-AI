@@ -1,0 +1,8 @@
+"""Aggregates all version 1 route modules into a single router."""
+
+from fastapi import APIRouter
+
+from app.api.v1.routes import system
+
+api_router = APIRouter()
+api_router.include_router(system.router)
