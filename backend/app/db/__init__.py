@@ -23,4 +23,3 @@ __all__ = [
     "is_sqlite_url",
     "verify_database_connection",
 ]
-
