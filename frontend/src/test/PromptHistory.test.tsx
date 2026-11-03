@@ -635,62 +635,52 @@ describe('Server-side search, target AI filtering, and URL state management (Mil
     ])
 
     renderAppAtRoutes(['/history'])
-    expect(await screen.findByText(/Kayıt #2:|\bPython arka uç servisi\b/i)).toBeInTheDocument()
+    expect(await screen.findByText('Python arka uç servisi')).toBeInTheDocument()
     expect(getRecordedListQueries()).toHaveLength(1)
 
-    const searchInput = screen.getByLabelText('Anahtar Kelime ile Ara')
-
-    // Keep the real MSW filtering/recording handler, but hold its response until
-    // real timers are restored so React Query cannot strand a notification on
-    // the fake clock. Returning undefined falls through to the existing handler.
+    // Observe requests without replacing the real filtering/recording handler.
     const searchRequests = vi.fn()
-    let releaseSearchResponse!: () => void
-    const searchResponseReady = new Promise<void>((resolve) => {
-      releaseSearchResponse = resolve
-    })
     server.use(
-      http.get('/api/v1/prompt-requests', async ({ request }) => {
-        if (new URL(request.url).searchParams.has('q')) {
-          searchRequests(new URL(request.url).searchParams.get('q'))
-          await searchResponseReady
-        }
+      http.get('/api/v1/prompt-requests', ({ request }) => {
+        const q = new URL(request.url).searchParams.get('q')
+        if (q !== null) searchRequests(q)
       }),
     )
 
-    vi.useFakeTimers()
-    try {
-      for (const partial of ['  R', '  Re', '  Rea', '  Reac', '  React  ']) {
-        fireEvent.change(searchInput, { target: { value: partial } })
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(100)
+    const searchInput = screen.getByLabelText('Anahtar Kelime ile Ara')
+    // Register the early checkpoint before typing so its real timer is ordered
+    // before the debounce even when a busy CI worker wakes up late. Capture the
+    // counts inside the callback, not after an asynchronously resumed assertion.
+    const earlyCheckpoint = new Promise<{ total: number; filtered: number }>((resolve) => {
+      window.setTimeout(() => {
+        resolve({
+          total: getRecordedListQueries().length,
+          filtered: searchRequests.mock.calls.length,
         })
-      }
-
-      // Controlled input reflects user typing immediately, while API was NOT called yet
-      expect(searchInput).toHaveValue('  React  ')
-      expect(getRecordedListQueries()).toHaveLength(1)
-      expect(searchRequests).not.toHaveBeenCalled()
-
-      // At 340ms total since last keystroke (100ms already advanced + 240ms = 340ms < 350ms), still no call
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(240)
-      })
-      expect(getRecordedListQueries()).toHaveLength(1)
-      expect(searchRequests).not.toHaveBeenCalled()
-
-      // Crossing 350ms commits normalized q='React' to URL and triggers exactly one search request
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(20)
-      })
-    } finally {
-      vi.useRealTimers()
-      releaseSearchResponse()
-    }
-
-    await waitFor(() => {
-      expect(getRecordedListQueries()).toHaveLength(2)
+      }, 340)
     })
 
+    // Separate change events flush React effects, but no wall-clock pauses split
+    // this typing burst. All infrastructure uses real timers throughout.
+    for (const partial of ['  R', '  Re', '  Rea', '  Reac', '  React  ']) {
+      fireEvent.change(searchInput, { target: { value: partial } })
+    }
+    expect(searchInput).toHaveValue('  React  ')
+    expect(getRecordedListQueries()).toHaveLength(1)
+    expect(searchRequests).not.toHaveBeenCalled()
+
+    await act(async () => {
+      expect(await earlyCheckpoint).toEqual({ total: 1, filtered: 0 })
+    })
+
+    // Wait for the complete filtered UI, not just an item already in the initial list.
+    await waitFor(() => {
+      expect(screen.getByText('React bileşen mimarisi tasarımı')).toBeInTheDocument()
+      expect(screen.queryByText('Python arka uç servisi')).not.toBeInTheDocument()
+      expect(screen.getByLabelText('Toplam kayıt sayısı')).toHaveTextContent('Eşleşen 1 kayıt')
+      expect(getRecordedListQueries()).toHaveLength(2)
+      expect(searchRequests).toHaveBeenCalledExactlyOnceWith('React')
+    })
     expect(getRecordedListQueries()[1]).toEqual({
       rawPage: '1',
       rawPageSize: '10',
@@ -699,15 +689,12 @@ describe('Server-side search, target AI filtering, and URL state management (Mil
       rawQ: 'React',
     })
 
-    // The matching record also exists before filtering: wait for the complete
-    // filtered UI state, not merely for the request or that record to exist.
-    await waitFor(() => {
-      expect(screen.getByText('React bileşen mimarisi tasarımı')).toBeInTheDocument()
-      expect(screen.queryByText('Python arka uç servisi')).not.toBeInTheDocument()
-      expect(screen.getByLabelText('Toplam kayıt sayısı')).toHaveTextContent('Eşleşen 1 kayıt')
-      expect(getRecordedListQueries()).toHaveLength(2)
-      expect(searchRequests).toHaveBeenCalledExactlyOnceWith('React')
+    // A second debounce window must not produce a duplicate filtered request.
+    await act(async () => {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 400))
     })
+    expect(getRecordedListQueries()).toHaveLength(2)
+    expect(searchRequests).toHaveBeenCalledExactlyOnceWith('React')
   })
 
   it('matches keywords across raw_prompt OR user_context and omits q when cleared or whitespace-only', async () => {
