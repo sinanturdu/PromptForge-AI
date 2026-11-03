@@ -2,42 +2,49 @@ import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import App from '../App'
 
-describe('PromptForge AI initial foundation shell', () => {
-  it('renders PromptForge AI branding, title, and platform description', () => {
+describe('PromptForge AI application shell and preserved architectural overview', () => {
+  it('renders PromptForge AI branding, Turkish hero heading, and platform description', () => {
     render(<App />)
 
     expect(screen.getByText('PromptForge AI')).toBeInTheDocument()
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Transform raw requests into evaluated, target-ready AI prompts/i,
+        name: /Ham isteklerinizi yapılandırılmış ve hedefe hazır prompt kayıtlarına dönüştürün/i,
       }),
     ).toBeInTheDocument()
-    expect(screen.getByText(/modular multi-agent platform/i)).toBeInTheDocument()
+    expect(screen.getByText(/modüler çoklu ajan platformudur/i)).toBeInTheDocument()
   })
 
-  it('clearly indicates that AI agent execution will be implemented in later milestones', () => {
+  it('clearly distinguishes active persistence from planned AI agent milestones without outdated disabled claims', () => {
     render(<App />)
 
     expect(
       screen.getByText(
-        /Foundation Shell Active — AI Agent Execution Planned for Upcoming Milestones/i,
+        /Prompt Gönderimi ve Kalıcı Kayıt Aktif — AI Optimizasyon Ajanları Planlama Aşamasında/i,
       ),
     ).toBeInTheDocument()
-    expect(screen.getByText('No Live LLM Calls')).toBeInTheDocument()
+    expect(screen.getByText('Canlı LLM Çağrısı Yok')).toBeInTheDocument()
+    expect(screen.queryByText(/Disabled in Milestone 2A/i)).not.toBeInTheDocument()
   })
 
-  it('renders the disabled workspace placeholder and planned target modes without fake actions', () => {
+  it('preserves architectural guarantees, 3-round evaluation overview, and enabled submission controls', () => {
     render(<App />)
 
-    const promptInput = screen.getByLabelText(/Raw User Request/i)
-    expect(promptInput).toBeDisabled()
+    const promptInput = screen.getByLabelText(/Ham Prompt İsteği/i)
+    expect(promptInput).toBeEnabled()
 
     expect(screen.getByText('Universal')).toBeInTheDocument()
     expect(screen.getByText('ChatGPT / GPT')).toBeInTheDocument()
     expect(screen.getByText('Claude')).toBeInTheDocument()
     expect(screen.getByText('Gemini')).toBeInTheDocument()
-    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+
+    expect(screen.getByText('Temel Mimari Güvenceler')).toBeInTheDocument()
+    expect(screen.getByText('Bağımsız Kalite Denetimi')).toBeInTheDocument()
+    expect(screen.getByText('Deterministik 3 Tur Revizyon Sınırı')).toBeInTheDocument()
+    expect(screen.getByText('CanonicalPrompt ve Hedef Derleyiciler')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Sınırlandırılmış Değerlendirme ve Revizyon Akışı/i),
+    ).toBeInTheDocument()
   })
 })
-
