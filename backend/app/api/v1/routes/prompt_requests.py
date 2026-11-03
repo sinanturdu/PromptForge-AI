@@ -8,10 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import PROBLEM_JSON_MEDIA_TYPE, ProblemDetails
 from app.db.session import get_db_session
+from app.models.enums import TargetMode
 from app.modules.prompts.schemas import (
     DEFAULT_PAGE,
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
+    MAX_SEARCH_QUERY_LENGTH,
     PromptRequestCreate,
     PromptRequestListResponse,
     PromptRequestRead,
@@ -98,9 +100,32 @@ async def list_prompt_requests(
             description=f"Number of records per page (1..{MAX_PAGE_SIZE}).",
         ),
     ] = DEFAULT_PAGE_SIZE,
+    q: Annotated[
+        str | None,
+        Query(
+            max_length=MAX_SEARCH_QUERY_LENGTH,
+            description=(
+                "Optional case-insensitive partial keyword search across raw_prompt "
+                "and user_context (1..200 characters; blank values are ignored)."
+            ),
+        ),
+    ] = None,
+    target_mode: Annotated[
+        TargetMode | None,
+        Query(
+            description=(
+                "Optional target AI family filter ('generic', 'openai', 'anthropic', or 'google')."
+            ),
+        ),
+    ] = None,
 ) -> PromptRequestListResponse:
-    """Return a paginated list of saved prompt requests ordered newest first."""
-    return await service.list_prompt_requests(page=page, page_size=page_size)
+    """Return a paginated, optionally filtered list of saved prompt requests newest first."""
+    return await service.list_prompt_requests(
+        page=page,
+        page_size=page_size,
+        q=q,
+        target_mode=target_mode,
+    )
 
 
 @router.get(

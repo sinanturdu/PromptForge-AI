@@ -1,5 +1,6 @@
 """Tests for Milestone 3B SQLAlchemy ORM models and Alembic migrations."""
 
+from collections.abc import Callable
 from datetime import UTC
 from decimal import Decimal
 from pathlib import Path
@@ -14,7 +15,7 @@ from sqlalchemy import Connection, inspect, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
-from app.core.config import DEFAULT_SQLITE_DB_PATH, build_sqlite_url
+from app.core.config import build_sqlite_url
 from app.db.base import Base
 from app.db.migrations import ALEMBIC_INI_PATH, build_alembic_config
 from app.db.session import DatabaseSessionManager
@@ -494,6 +495,7 @@ async def test_evaluation_rounds_and_enum_check_constraints_are_enforced(
 @pytest.mark.anyio
 async def test_migration_downgrade_and_re_upgrade_succeed_with_circular_rows(
     migrated_sqlite_url: str,
+    default_db_guard: Callable[[], None],
 ) -> None:
     alembic_cfg = build_alembic_config(migrated_sqlite_url)
 
@@ -571,13 +573,14 @@ async def test_migration_downgrade_and_re_upgrade_succeed_with_circular_rows(
     finally:
         await reupgraded_manager.dispose()
 
-    assert not DEFAULT_SQLITE_DB_PATH.exists()
+    default_db_guard()
 
 
 @pytest.mark.anyio
 async def test_alembic_ini_resolves_settings_database_url_from_any_cwd(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    default_db_guard: Callable[[], None],
 ) -> None:
     outside_dir = tmp_path / "external_caller_dir"
     outside_dir.mkdir()
@@ -602,4 +605,4 @@ async def test_alembic_ini_resolves_settings_database_url_from_any_cwd(
         await manager.dispose()
 
     command.downgrade(cli_like_cfg, "base")
-    assert not DEFAULT_SQLITE_DB_PATH.exists()
+    default_db_guard()

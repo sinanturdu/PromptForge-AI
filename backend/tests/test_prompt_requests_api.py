@@ -1,6 +1,6 @@
 """Integration tests for `/api/v1/prompt-requests` REST API endpoints."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -10,15 +10,17 @@ import pytest
 from alembic import command
 from fastapi.testclient import TestClient
 from pydantic_settings import SettingsConfigDict
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import DEFAULT_SQLITE_DB_PATH, Settings, build_sqlite_url
+from app.core.config import Settings, build_sqlite_url
 from app.db.migrations import build_alembic_config
 from app.db.session import DatabaseSessionManager
 from app.main import create_app
+from app.models.enums import TargetMode
 from app.models.prompt_request import PromptRequest
-from app.modules.prompts.schemas import MAX_RAW_PROMPT_LENGTH
+from app.modules.prompts.schemas import MAX_RAW_PROMPT_LENGTH, MAX_SEARCH_QUERY_LENGTH
 
 
 class IsolatedApiSettings(Settings):
@@ -302,6 +304,7 @@ async def test_paginated_listing_and_deterministic_ordering(
 
 def test_transaction_rollback_on_api_write_failure_and_health_preserved(
     api_client: TestClient,
+    default_db_guard: Callable[[], None],
 ) -> None:
     original_rollback = AsyncSession.rollback
     with (
@@ -343,4 +346,399 @@ def test_transaction_rollback_on_api_write_failure_and_health_preserved(
     assert "/api/v1/prompt-requests" in paths
     assert "/api/v1/prompt-requests/{id}" in paths
 
-    assert not DEFAULT_SQLITE_DB_PATH.exists()
+    default_db_guard()
+
+
+@pytest.mark.anyio
+async def test_search_and_target_mode_filtering_pagination_ordering_and_immutability(
+    api_client: TestClient,
+    migrated_db_url: str,
+    default_db_guard: Callable[[], None],
+) -> None:
+    id_gen_1 = UUID("20000000-0000-0000-0000-000000000001")
+    id_oai_1 = UUID("20000000-0000-0000-0000-000000000002")
+    id_ant_tie_low = UUID("20000000-0000-0000-0000-000000000003")
+    id_ant_tie_high = UUID("20000000-0000-0000-0000-000000000004")
+    id_ant_ctx = UUID("20000000-0000-0000-0000-000000000005")
+    id_goo_1 = UUID("20000000-0000-0000-0000-000000000006")
+    id_ant_newest = UUID("20000000-0000-0000-0000-000000000007")
+    id_oai_2 = UUID("20000000-0000-0000-0000-000000000008")
+
+    t_1 = datetime(2026, 9, 1, 8, 0, 0, tzinfo=UTC)
+    t_2 = datetime(2026, 9, 1, 9, 0, 0, tzinfo=UTC)
+    t_tie = datetime(2026, 9, 1, 10, 0, 0, tzinfo=UTC)
+    t_4 = datetime(2026, 9, 1, 11, 0, 0, tzinfo=UTC)
+    t_5 = datetime(2026, 9, 1, 12, 0, 0, tzinfo=UTC)
+    t_6 = datetime(2026, 9, 1, 13, 0, 0, tzinfo=UTC)
+    t_7 = datetime(2026, 9, 1, 14, 0, 0, tzinfo=UTC)
+
+    seeded_rows = [
+        PromptRequest(
+            id=id_gen_1,
+            raw_prompt="Design a modular event bus for distributed observability.",
+            user_context=None,
+            target_mode=TargetMode.GENERIC.value,
+            created_at=t_1,
+        ),
+        PromptRequest(
+            id=id_oai_1,
+            raw_prompt="Build a React dashboard with chart widgets.",
+            user_context="TypeScript strict frontend.",
+            target_mode=TargetMode.OPENAI.value,
+            created_at=t_2,
+        ),
+        PromptRequest(
+            id=id_ant_tie_low,
+            raw_prompt="Implement a React state synchronization hook.",
+            user_context=None,
+            target_mode=TargetMode.ANTHROPIC.value,
+            created_at=t_tie,
+        ),
+        PromptRequest(
+            id=id_ant_tie_high,
+            raw_prompt="Optimize REACT router query parameter handling.",
+            user_context="Must support deep-linking.",
+            target_mode=TargetMode.ANTHROPIC.value,
+            created_at=t_tie,
+        ),
+        PromptRequest(
+            id=id_ant_ctx,
+            raw_prompt="Write unit tests for URL state helpers.",
+            user_context="Frontend stack uses react 19 and TanStack Query.",
+            target_mode=TargetMode.ANTHROPIC.value,
+            created_at=t_4,
+        ),
+        PromptRequest(
+            id=id_goo_1,
+            raw_prompt="Summarize OpenTelemetry observability collector architecture.",
+            user_context="Kubernetes deployment context.",
+            target_mode=TargetMode.GOOGLE.value,
+            created_at=t_5,
+        ),
+        PromptRequest(
+            id=id_ant_newest,
+            raw_prompt="Audit React component accessibility and keyboard focus.",
+            user_context=None,
+            target_mode=TargetMode.ANTHROPIC.value,
+            created_at=t_6,
+        ),
+        PromptRequest(
+            id=id_oai_2,
+            raw_prompt="Draft API gateway rate-limiting specification.",
+            user_context="UniqueContextKeywordForLookup in backend microservices.",
+            target_mode=TargetMode.OPENAI.value,
+            created_at=t_7,
+        ),
+    ]
+
+    manager = DatabaseSessionManager(migrated_db_url)
+    try:
+        async with manager.session() as session:
+            session.add_all(seeded_rows)
+            await session.commit()
+
+        async with manager.session() as snapshot_session:
+            before_snapshot = [
+                (row.id, row.raw_prompt, row.user_context, row.target_mode, row.created_at)
+                for row in (
+                    await snapshot_session.execute(
+                        select(PromptRequest).order_by(PromptRequest.id.asc())
+                    )
+                )
+                .scalars()
+                .all()
+            ]
+    finally:
+        await manager.dispose()
+
+    # 1. Backward-compatible unfiltered call preserves exact envelope and total count.
+    unfiltered = api_client.get("/api/v1/prompt-requests", params={"page": 1, "page_size": 10})
+    assert unfiltered.status_code == 200
+    unfiltered_body = unfiltered.json()
+    assert set(unfiltered_body.keys()) == {"items", "total", "page", "page_size"}
+    assert unfiltered_body["total"] == 8
+    assert unfiltered_body["page"] == 1
+    assert unfiltered_body["page_size"] == 10
+    assert len(unfiltered_body["items"]) == 8
+
+    # 2. Empty and whitespace-only q behave identically to no search filter.
+    for blank_q in ("", "   ", "\t  \n"):
+        blank_resp = api_client.get(
+            "/api/v1/prompt-requests",
+            params={"page": 1, "page_size": 10, "q": blank_q},
+        )
+        assert blank_resp.status_code == 200
+        assert blank_resp.json() == unfiltered_body
+
+    # 3. Search by raw_prompt, search by user_context (OR logic), partial & case-insensitive match.
+    ctx_only_resp = api_client.get(
+        "/api/v1/prompt-requests",
+        params={"q": "uniquecontextkeywordforlookup"},
+    )
+    assert ctx_only_resp.status_code == 200
+    assert ctx_only_resp.json()["total"] == 1
+    assert [item["id"] for item in ctx_only_resp.json()["items"]] == [str(id_oai_2)]
+
+    partial_resp = api_client.get("/api/v1/prompt-requests", params={"q": "  OBSERV  "})
+    assert partial_resp.status_code == 200
+    assert partial_resp.json()["total"] == 2
+    assert [item["id"] for item in partial_resp.json()["items"]] == [
+        str(id_goo_1),
+        str(id_gen_1),
+    ]
+
+    # Case-insensitive + whitespace-trimmed search across BOTH raw_prompt and user_context.
+    for react_variant in ("react", "REACT", "ReAcT", "   react   "):
+        react_resp = api_client.get("/api/v1/prompt-requests", params={"q": react_variant})
+        assert react_resp.status_code == 200
+        react_body = react_resp.json()
+        assert react_body["total"] == 5
+        assert [item["id"] for item in react_body["items"]] == [
+            str(id_ant_newest),
+            str(id_ant_ctx),
+            str(id_ant_tie_high),
+            str(id_ant_tie_low),
+            str(id_oai_1),
+        ]
+
+    # 4. Individual target_mode filtering for generic, openai, anthropic, and google.
+    expected_by_mode = {
+        "generic": [str(id_gen_1)],
+        "openai": [str(id_oai_2), str(id_oai_1)],
+        "anthropic": [
+            str(id_ant_newest),
+            str(id_ant_ctx),
+            str(id_ant_tie_high),
+            str(id_ant_tie_low),
+        ],
+        "google": [str(id_goo_1)],
+    }
+    for mode_value, expected_mode_ids in expected_by_mode.items():
+        mode_resp = api_client.get(
+            "/api/v1/prompt-requests",
+            params={"target_mode": mode_value, "page": 1, "page_size": 10},
+        )
+        assert mode_resp.status_code == 200
+        mode_json = mode_resp.json()
+        assert mode_json["total"] == len(expected_mode_ids)
+        assert [item["id"] for item in mode_json["items"]] == expected_mode_ids
+
+    # 5. Combined keyword + target_mode with multi-page filtered pagination and tie-breaker order.
+    expected_filtered_order = [
+        str(id_ant_newest),
+        str(id_ant_ctx),
+        str(id_ant_tie_high),
+        str(id_ant_tie_low),
+    ]
+    fp1 = api_client.get(
+        "/api/v1/prompt-requests",
+        params={"q": "react", "target_mode": "anthropic", "page": 1, "page_size": 2},
+    )
+    fp2 = api_client.get(
+        "/api/v1/prompt-requests",
+        params={"q": "react", "target_mode": "anthropic", "page": 2, "page_size": 2},
+    )
+    fp3 = api_client.get(
+        "/api/v1/prompt-requests",
+        params={"q": "react", "target_mode": "anthropic", "page": 3, "page_size": 2},
+    )
+    assert fp1.status_code == 200
+    assert fp2.status_code == 200
+    assert fp3.status_code == 200
+
+    assert fp1.json()["total"] == 4
+    assert fp2.json()["total"] == 4
+    assert fp3.json()["total"] == 4
+    assert fp3.json()["items"] == []
+    assert [
+        item["id"] for item in (*fp1.json()["items"], *fp2.json()["items"])
+    ] == expected_filtered_order
+
+    # Zero-match search returns empty items and total=0 without errors, including SQL-like strings.
+    zero_resp = api_client.get(
+        "/api/v1/prompt-requests",
+        params={"q": "'; DROP TABLE prompt_requests; --", "target_mode": "google"},
+    )
+    assert zero_resp.status_code == 200
+    assert zero_resp.json() == {
+        "items": [],
+        "total": 0,
+        "page": 1,
+        "page_size": 20,
+    }
+
+    # 6. Verify stored database rows were never mutated by any search or filter query.
+    verify_manager = DatabaseSessionManager(migrated_db_url)
+    try:
+        async with verify_manager.session() as verify_session:
+            after_snapshot = [
+                (row.id, row.raw_prompt, row.user_context, row.target_mode, row.created_at)
+                for row in (
+                    await verify_session.execute(
+                        select(PromptRequest).order_by(PromptRequest.id.asc())
+                    )
+                )
+                .scalars()
+                .all()
+            ]
+    finally:
+        await verify_manager.dispose()
+
+    assert after_snapshot == before_snapshot
+
+    # 7. Existing POST creation and GET-by-ID continue working seamlessly alongside filters.
+    post_resp = api_client.post(
+        "/api/v1/prompt-requests",
+        json={
+            "raw_prompt": "Create a Gemini prompt for log anomaly analysis.",
+            "target_mode": "google",
+        },
+    )
+    assert post_resp.status_code == 201
+    created_id = post_resp.json()["id"]
+
+    get_by_id_resp = api_client.get(f"/api/v1/prompt-requests/{created_id}")
+    assert get_by_id_resp.status_code == 200
+    assert get_by_id_resp.json()["id"] == created_id
+
+    updated_google = api_client.get(
+        "/api/v1/prompt-requests",
+        params={"q": "anomaly", "target_mode": "google"},
+    )
+    assert updated_google.status_code == 200
+    assert updated_google.json()["total"] == 1
+    assert updated_google.json()["items"][0]["id"] == created_id
+
+    default_db_guard()
+
+
+def test_search_literal_like_wildcards_and_backslashes_via_http_api(
+    api_client: TestClient,
+) -> None:
+    pct_create = api_client.post(
+        "/api/v1/prompt-requests",
+        json={
+            "raw_prompt": "Ensure 100% deterministic score calculation.",
+            "target_mode": "generic",
+        },
+    )
+    non_pct_create = api_client.post(
+        "/api/v1/prompt-requests",
+        json={
+            "raw_prompt": "Ensure 1000 deterministic score samples.",
+            "user_context": "Field name is task_profile in schema.",
+            "target_mode": "openai",
+        },
+    )
+    non_underscore_create = api_client.post(
+        "/api/v1/prompt-requests",
+        json={
+            "raw_prompt": "Field name is taskXprofile in legacy payload.",
+            "user_context": r"Local path C:\Users\dev\PromptForge-AI\backend",
+            "target_mode": "anthropic",
+        },
+    )
+    non_backslash_create = api_client.post(
+        "/api/v1/prompt-requests",
+        json={
+            "raw_prompt": "Local path C:UsersdevPromptForge-AIbackend without separators.",
+            "target_mode": "google",
+        },
+    )
+
+    assert pct_create.status_code == 201
+    assert non_pct_create.status_code == 201
+    assert non_underscore_create.status_code == 201
+    assert non_backslash_create.status_code == 201
+
+    pct_resp = api_client.get("/api/v1/prompt-requests", params={"q": "100%"})
+    assert pct_resp.status_code == 200
+    assert pct_resp.json()["total"] == 1
+    assert pct_resp.json()["items"][0]["id"] == pct_create.json()["id"]
+
+    # Standalone "%" must NOT match all 4 records unless literal "%" exists in text.
+    only_pct_resp = api_client.get("/api/v1/prompt-requests", params={"q": "%"})
+    assert only_pct_resp.status_code == 200
+    assert only_pct_resp.json()["total"] == 1
+    assert only_pct_resp.json()["items"][0]["id"] == pct_create.json()["id"]
+
+    underscore_resp = api_client.get("/api/v1/prompt-requests", params={"q": "task_profile"})
+    assert underscore_resp.status_code == 200
+    assert underscore_resp.json()["total"] == 1
+    assert underscore_resp.json()["items"][0]["id"] == non_pct_create.json()["id"]
+
+    backslash_resp = api_client.get(
+        "/api/v1/prompt-requests",
+        params={"q": r"C:\Users\dev"},
+    )
+    assert backslash_resp.status_code == 200
+    assert backslash_resp.json()["total"] == 1
+    assert backslash_resp.json()["items"][0]["id"] == non_underscore_create.json()["id"]
+
+
+@pytest.mark.parametrize(
+    "invalid_target_mode",
+    [
+        "unsupported",
+        "all",
+        "",
+        "OPENAI",
+        "claude",
+    ],
+)
+def test_list_rejects_invalid_target_mode_with_safe_problem_details(
+    api_client: TestClient,
+    invalid_target_mode: str,
+) -> None:
+    resp = api_client.get(
+        "/api/v1/prompt-requests",
+        params={"target_mode": invalid_target_mode},
+    )
+    assert resp.status_code == 422
+    assert resp.headers["content-type"].startswith("application/problem+json")
+
+    body = resp.json()
+    assert body["status"] == 422
+    assert body["error_code"] == "validation_error"
+    assert body["request_id"] == resp.headers["X-Request-ID"]
+    assert any(err["field"] == "target_mode" for err in body["errors"])
+    assert "sqlite" not in resp.text.lower()
+    assert "traceback" not in resp.text.lower()
+
+
+def test_list_search_query_max_length_boundary_and_openapi_documentation(
+    api_client: TestClient,
+) -> None:
+    # Exact 200-character query is valid and returns HTTP 200.
+    exact_max_q = "k" * MAX_SEARCH_QUERY_LENGTH
+    ok_resp = api_client.get("/api/v1/prompt-requests", params={"q": exact_max_q})
+    assert ok_resp.status_code == 200
+    assert ok_resp.json()["total"] == 0
+
+    # 201-character query is rejected with HTTP 422 Problem Details without echoing raw input.
+    oversized_marker = "Z" * (MAX_SEARCH_QUERY_LENGTH + 1)
+    too_long_resp = api_client.get("/api/v1/prompt-requests", params={"q": oversized_marker})
+    assert too_long_resp.status_code == 422
+    assert too_long_resp.headers["content-type"].startswith("application/problem+json")
+
+    body = too_long_resp.json()
+    assert body["status"] == 422
+    assert body["error_code"] == "validation_error"
+    assert body["request_id"] == too_long_resp.headers["X-Request-ID"]
+    assert any(err["field"] == "q" and err["code"] == "string_too_long" for err in body["errors"])
+    assert oversized_marker not in too_long_resp.text
+    assert "sqlite" not in too_long_resp.text.lower()
+    assert "select " not in too_long_resp.text.lower()
+
+    # Verify OpenAPI schema documents both `q` and `target_mode` query parameters on GET list.
+    openapi_resp = api_client.get("/api/v1/openapi.json")
+    assert openapi_resp.status_code == 200
+    list_op = openapi_resp.json()["paths"]["/api/v1/prompt-requests"]["get"]
+    params_by_name = {param["name"]: param for param in list_op["parameters"]}
+
+    assert {"page", "page_size", "q", "target_mode"}.issubset(params_by_name.keys())
+    assert params_by_name["q"]["in"] == "query"
+    assert params_by_name["q"]["required"] is False
+    assert str(MAX_SEARCH_QUERY_LENGTH) in str(params_by_name["q"]["schema"])
+    assert params_by_name["target_mode"]["in"] == "query"
+    assert params_by_name["target_mode"]["required"] is False

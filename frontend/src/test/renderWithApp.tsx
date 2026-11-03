@@ -9,6 +9,7 @@ export function createTestQueryClient(): QueryClient {
     defaultOptions: {
       queries: {
         retry: false,
+        retryDelay: 0,
         staleTime: 0,
       },
       mutations: {

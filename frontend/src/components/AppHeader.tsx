@@ -5,7 +5,7 @@ export function AppHeader() {
   return (
     <header className="sticky top-0 z-20 border-b border-slate-800/80 bg-slate-950/90 backdrop-blur">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-3.5 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-6">
+        <div className="flex flex-wrap items-center gap-4 sm:gap-6">
           <Link
             to={ROUTES.newPrompt}
             className="group flex items-center gap-3 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
@@ -31,7 +31,7 @@ export function AppHeader() {
             </div>
           </Link>
 
-          <nav aria-label="Ana gezinme" className="hidden items-center gap-1 sm:flex">
+          <nav aria-label="Ana gezinme" className="flex flex-wrap items-center gap-1.5">
             <NavLink
               to={ROUTES.newPrompt}
               end
@@ -39,11 +39,24 @@ export function AppHeader() {
                 `rounded-lg px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
                   isActive
                     ? 'border border-indigo-500/40 bg-indigo-500/15 text-indigo-200'
-                    : 'text-slate-300 hover:bg-slate-900 hover:text-slate-100'
+                    : 'border border-transparent text-slate-300 hover:bg-slate-900 hover:text-slate-100'
                 }`
               }
             >
-              Yeni Prompt İsteği
+              Yeni Prompt
+            </NavLink>
+
+            <NavLink
+              to={ROUTES.promptHistory}
+              className={({ isActive }) =>
+                `rounded-lg px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
+                  isActive
+                    ? 'border border-indigo-500/40 bg-indigo-500/15 text-indigo-200'
+                    : 'border border-transparent text-slate-300 hover:bg-slate-900 hover:text-slate-100'
+                }`
+              }
+            >
+              Prompt Geçmişi
             </NavLink>
           </nav>
         </div>
@@ -51,7 +64,7 @@ export function AppHeader() {
         <div className="flex items-center gap-2 text-xs">
           <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 font-medium text-emerald-200">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden="true" />
-            Milestone 4A · Prompt Kaydı Aktif
+            Milestone 4B-1 · Kayıt ve Geçmiş Aktif
           </span>
         </div>
       </div>

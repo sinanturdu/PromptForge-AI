@@ -1,6 +1,6 @@
 # PromptForge AI — Teknik Mimari Dokümantasyonu (v1.2)
 
-> **Uygulama Durumu Bildirimi (Milestone 4A):** Bu doküman, PromptForge AI platformunun onaylanmış hedef mimarisini ve aşamalı yol haritasını tanımlar. Şu anki depoda **Milestone 2A temel altyapısı**, **Milestone 3A asenkron veritabanı bağlantı temeli**, **Milestone 3B ilk dört ORM modeli ile Alembic göç sistemi** (`0001_initial_schema`), **Milestone 3C-1 Prompt Yönetimi REST API**, **Milestone 3C-2 yapılandırılmış JSON loglama, `X-Request-ID`, HTTP gövde boyutu sınırı ve RFC 9457 Problem Details hata yönetimi** ve **Milestone 4A işlevsel Türkçe prompt gönderim arayüzü, Problem Details uyumlu API istemcisi ve UUID tabanlı detay sayfası** uygulanmıştır. Prompt geçmişi listeleme sayfası (**Milestone 4B**), değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues` — Milestone 7), LLM sağlayıcı entegrasyonu, AI ajanları, `CanonicalPrompt` derleyicisi, değerlendirme motoru, token analizi ve sesli girdi (Speech-to-Text) bileşenleri **henüz kodlanmamıştır**.
+> **Uygulama Durumu Bildirimi (Milestone 4B-1):** Bu doküman, PromptForge AI platformunun onaylanmış hedef mimarisini ve aşamalı yol haritasını tanımlar. Şu anki depoda **Milestone 2A temel altyapısı**, **Milestone 3A asenkron veritabanı bağlantı temeli**, **Milestone 3B ilk dört ORM modeli ile Alembic göç sistemi** (`0001_initial_schema`), **Milestone 3C-1 Prompt Yönetimi REST API**, **Milestone 3C-2 yapılandırılmış JSON loglama, `X-Request-ID`, HTTP gövde boyutu sınırı ve RFC 9457 Problem Details hata yönetimi**, **Milestone 4A işlevsel Türkçe prompt gönderim arayüzü, Problem Details uyumlu API istemcisi ve UUID tabanlı detay sayfası** ve **Milestone 4B-1 sunucu taraflı sayfalamalı prompt geçmişi arayüzü (`/history`), URL `?page=` durum yönetimi ve mobil uyumlu üst gezinme çubuğu** uygulanmıştır. Geçmiş listesinde gelişmiş arama ve filtreleme (**Milestone 4B-2**), değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues` — Milestone 7), LLM sağlayıcı entegrasyonu, AI ajanları, `CanonicalPrompt` derleyicisi, değerlendirme motoru, token analizi ve sesli girdi (Speech-to-Text) bileşenleri **henüz kodlanmamıştır**.
 
 ---
 
@@ -19,7 +19,7 @@ Platform basit bir sohbet arayüzü değildir; temel ilkeleri şunlardır:
 
 ## 2. Kapsam ve Uygulama Durumu
 
-### 2.1 Mevcut Durum — Milestone 2A, 3A, 3B, 3C-1, 3C-2 & 4A (Uygulandı)
+### 2.1 Mevcut Durum — Milestone 2A, 3A, 3B, 3C-1, 3C-2, 4A & 4B-1 (Uygulandı)
 
 - `backend/` ve `frontend/` ayrımına sahip monorepo yapısı
 - Python 3.12, `uv`, FastAPI uygulama fabrikası (`create_app`), `lifespan` kaynak yönetimi ve `GET /api/v1/health` uç noktası
@@ -29,7 +29,7 @@ Platform basit bir sohbet arayüzü değildir; temel ilkeleri şunlardır:
 - Yapılandırılmış UTC JSON loglama (`app/core/logging.py`), sunucu taraflı `X-Request-ID` izleme ve `MAX_REQUEST_BODY_BYTES` HTTP gövde boyutu denetimi (`app/api/middleware.py`) ile merkezi RFC 9457 Problem Details (`application/problem+json`) hata yönetimi (`app/core/errors.py`, `app/api/error_handlers.py`)
 - Otomatik OpenAPI şeması (`/docs`, `/redoc`, `/api/v1/openapi.json` — `ProblemDetails` şeması ile uyumlu)
 - Ruff, `mypy --strict` ve `pytest` doğrulama altyapısı
-- React 19, Vite 8 (`/api` geliştirme proxy'si ile), TypeScript (`strict`), Tailwind CSS v4, React Router, TanStack Query, ESLint, Vitest ve MSW ile geliştirilmiş Türkçe prompt gönderim formu (`/`), RFC 9457 Problem Details uyumlu tipli API istemcisi ve UUID tabanlı prompt detay sayfası (`/prompt-requests/:id`) (sahte AI işlevi içermez)
+- React 19, Vite 8 (`/api` geliştirme proxy'si ile), TypeScript (`strict`), Tailwind CSS v4, React Router, TanStack Query, ESLint, Vitest ve MSW ile geliştirilmiş Türkçe prompt gönderim formu (`/`), URL tabanlı sunucu taraflı sayfalamalı salt okunur prompt geçmişi sayfası (`/history`), mobil ve masaüstü uyumlu üst gezinme çubuğu (`Yeni Prompt`, `Prompt Geçmişi`), RFC 9457 Problem Details uyumlu tipli API istemcisi ve UUID tabanlı prompt detay sayfası (`/prompt-requests/:id`) (sahte AI işlevi içermez)
 - GitHub Actions CI iş akışı (`.github/workflows/ci.yml`)
 
 ### 2.2 Planlanan İlk MVP Kapsamı (Milestone 3 – Milestone 9)
@@ -65,7 +65,7 @@ Platform basit bir sohbet arayüzü değildir; temel ilkeleri şunlardır:
 | Katman | Teknoloji | Durum | Seçim Gerekçesi |
 |---|---|---|---|
 | **Frontend** | React 19, Vite 8, TypeScript (`strict`), Tailwind CSS v4 | M2A'da kuruldu | Hızlı geliştirme döngüsü, güçlü tip güvenliği, resmi Vite eklentisiyle sade CSS yapılandırması |
-| **Frontend Veri & Durum** | TanStack Query (M4), HTTP Polling | Planlandı (M4+) | Sunucu durumu önbellekleme ve 2 sn aralıklı polling için ek altyapı gerektirmez |
+| **Frontend Veri & Durum** | TanStack Query, React Router, HTTP Polling | M4A/M4B-1 sorgu, önbellek ve URL sayfalama entegrasyonu kuruldu; 2 sn çalışma polling M6'da eklenecek | Sunucu durumu önbellekleme, URL sayfa senkronizasyonu ve 2 sn aralıklı polling için ek altyapı gerektirmez |
 | **Backend** | Python 3.12, FastAPI, Pydantic v2, `uv` | M2A'da kuruldu | Async I/O uyumu, katı veri şeması doğrulaması, hızlı ve kilit dosyalı (`uv.lock`) bağımlılık yönetimi |
 | **Veritabanı** | SQLite (MVP) → PostgreSQL (Gelecek), SQLAlchemy 2.0 Async + Alembic | M3A bağlantı temeli ve M3B ilk 4 ORM modeli + Alembic göç sistemi kuruldu; değerlendirme tabloları M7'de eklenecek | Yerel MVP'de sıfır kurulum yükü; lehçeden bağımsız tiplerle PostgreSQL'e doğrudan taşınabilirlik |
 | **LLM Katmanı** | Sağlayıcıdan bağımsız `LLMProvider` protokolü + `FakeLLMProvider` + 1 gerçek sağlayıcı | Planlandı (M5) | Ağır orkestrasyon çerçeveleri olmadan deterministik test edilebilirlik ve model esnekliği |
@@ -571,7 +571,8 @@ flowchart LR
 | **M3C-1** | Prompt yönetimi REST API uç noktaları (`POST/GET /api/v1/prompt-requests`), Pydantic v2 doğrulama şemaları, `PromptRequestRepository` ve `PromptRequestService` | **Tamamlandı** |
 | **M3C-2** | Yapılandırılmış JSON loglama, `X-Request-ID` ara katmanı, HTTP istek gövde boyutu sınırı ve merkezi RFC 9457 Problem Details hata yönetimi | **Tamamlandı** |
 | **M4A** | React Router, TanStack Query, Problem Details uyumlu API istemcisi, Türkçe prompt gönderim formu ve UUID tabanlı detay sayfası | **Tamamlandı** |
-| **M4B** | Kaydedilen prompt istekleri için geçmiş listeleme ve sayfalama arayüzü | Planlandı |
+| **M4B-1** | Kaydedilen prompt istekleri için sunucu taraflı sayfalamalı geçmiş arayüzü (`/history`), URL `?page=` durumu ve üst gezinme çubuğu | **Tamamlandı** |
+| **M4B-2** | Prompt geçmişi için gelişmiş arama ve filtreleme kontrolleri | Planlandı |
 | **M5** | `LLMProvider` protokolü, `LLMGateway`, `FakeLLMProvider` ve ilk gerçek LLM sağlayıcı adaptörü | Planlandı |
 | **M6** | `PromptEngineerAgent`, `CanonicalPrompt` ara temsili ve `GenericPromptRenderer` | Planlandı |
 | **M7** | Bağımsız `PromptCriticAgent`, rubric v1 ve deterministik `ScoringEngine` | Planlandı |

@@ -1,5 +1,6 @@
 import { BrowserRouter, Link, Route, Routes } from 'react-router'
 import { NewPromptPage } from '../pages/NewPromptPage'
+import { PromptHistoryPage } from '../pages/PromptHistoryPage'
 import { PromptRequestDetailPage } from '../pages/PromptRequestDetailPage'
 import { AppLayout } from './AppLayout'
 import { ROUTES } from './routes'
@@ -30,6 +31,7 @@ export function AppRoutes() {
     <Routes>
       <Route element={<AppLayout />}>
         <Route path={ROUTES.newPrompt} element={<NewPromptPage />} />
+        <Route path={ROUTES.promptHistory} element={<PromptHistoryPage />} />
         <Route path={ROUTES.promptRequestDetailPattern} element={<PromptRequestDetailPage />} />
         <Route path="*" element={<NotFoundRouteView />} />
       </Route>

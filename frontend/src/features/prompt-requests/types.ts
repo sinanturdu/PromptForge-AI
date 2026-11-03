@@ -8,6 +8,20 @@ export const MAX_USER_CONTEXT_LENGTH = 20_000
 export const MAX_OUTPUT_LANGUAGE_LENGTH = 32
 export const MAX_TASK_PROFILE_LENGTH = 64
 
+export const DEFAULT_HISTORY_PAGE = 1
+export const DEFAULT_HISTORY_PAGE_SIZE = 10
+export const MAX_SEARCH_QUERY_LENGTH = 200
+export const SEARCH_DEBOUNCE_MS = 350
+
+export type TargetModeFilter = TargetMode | 'all'
+
+export interface PromptHistoryQueryParams {
+  readonly page: number
+  readonly pageSize: number
+  readonly q?: string
+  readonly targetMode?: TargetMode
+}
+
 export interface PromptRequestCreatePayload {
   readonly raw_prompt: string
   readonly user_context: string | null
@@ -30,6 +44,13 @@ export interface PromptRequestRecord {
   readonly response_detail_preference: ResponseDetailPreference
   readonly reasoning_preference: ReasoningPreference
   readonly created_at: string
+}
+
+export interface PromptRequestListResponse {
+  readonly items: readonly PromptRequestRecord[]
+  readonly total: number
+  readonly page: number
+  readonly page_size: number
 }
 
 export interface PromptFormValues {
@@ -102,6 +123,19 @@ export const TARGET_AI_FAMILY_OPTIONS: readonly TargetAiFamilyOption[] = [
     badge: 'google',
     description: 'Kısıtlamaları ve yapılandırılmış çıktı beklentilerini öne çıkaran Gemini uyumlu düzen.',
   },
+]
+
+export interface TargetAiFilterOption {
+  readonly value: TargetModeFilter
+  readonly label: string
+}
+
+export const TARGET_AI_FILTER_OPTIONS: readonly TargetAiFilterOption[] = [
+  { value: 'all', label: 'Tümü' },
+  ...TARGET_AI_FAMILY_OPTIONS.map((option) => ({
+    value: option.value,
+    label: option.label,
+  })),
 ]
 
 export const OUTPUT_LANGUAGE_OPTIONS: readonly OutputLanguageOption[] = [

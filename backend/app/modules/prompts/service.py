@@ -5,16 +5,30 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import NotFoundError
+from app.models.enums import TargetMode
 from app.models.prompt_request import PromptRequest
 from app.modules.prompts.repository import PromptRequestRepository
 from app.modules.prompts.schemas import (
     DEFAULT_PAGE,
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
+    MAX_SEARCH_QUERY_LENGTH,
     PromptRequestCreate,
     PromptRequestListResponse,
     PromptRequestRead,
 )
+
+
+def normalize_search_query(raw_query: str | None) -> str | None:
+    """Normalize optional search input by trimming whitespace and collapsing blanks to None."""
+    if raw_query is None:
+        return None
+    if len(raw_query) > MAX_SEARCH_QUERY_LENGTH:
+        raise ValueError(f"q must be at most {MAX_SEARCH_QUERY_LENGTH} characters.")
+    stripped = raw_query.strip()
+    if not stripped:
+        return None
+    return stripped
 
 
 class PromptRequestNotFoundError(NotFoundError):
@@ -74,16 +88,27 @@ class PromptRequestService:
         *,
         page: int = DEFAULT_PAGE,
         page_size: int = DEFAULT_PAGE_SIZE,
+        q: str | None = None,
+        target_mode: TargetMode | None = None,
     ) -> PromptRequestListResponse:
-        """Return a paginated list of saved PromptRequest records sorted newest first."""
+        """Return a paginated, optionally filtered list of PromptRequest records newest first."""
         if page < 1:
             raise ValueError("page must be at least 1.")
         if page_size < 1 or page_size > MAX_PAGE_SIZE:
             raise ValueError(f"page_size must be between 1 and {MAX_PAGE_SIZE}.")
 
+        normalized_query = normalize_search_query(q)
         offset = (page - 1) * page_size
-        total = await self._repository.count_all()
-        records = await self._repository.list_paginated(offset=offset, limit=page_size)
+        total = await self._repository.count_filtered(
+            search_query=normalized_query,
+            target_mode=target_mode,
+        )
+        records = await self._repository.list_paginated(
+            offset=offset,
+            limit=page_size,
+            search_query=normalized_query,
+            target_mode=target_mode,
+        )
         return PromptRequestListResponse(
             items=[PromptRequestRead.model_validate(record) for record in records],
             total=total,
