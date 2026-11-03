@@ -1,11 +1,12 @@
 """REST API routes for creating and retrieving user prompt requests."""
 
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import PROBLEM_JSON_MEDIA_TYPE, ProblemDetails
 from app.db.session import get_db_session
 from app.modules.prompts.schemas import (
     DEFAULT_PAGE,
@@ -15,9 +16,31 @@ from app.modules.prompts.schemas import (
     PromptRequestListResponse,
     PromptRequestRead,
 )
-from app.modules.prompts.service import PromptRequestNotFoundError, PromptRequestService
+from app.modules.prompts.service import PromptRequestService
 
-router = APIRouter(prefix="/prompt-requests", tags=["prompt-requests"])
+
+def _problem_response_spec(description: str) -> dict[str, Any]:
+    return {
+        "model": ProblemDetails,
+        "description": description,
+        "content": {
+            PROBLEM_JSON_MEDIA_TYPE: {"schema": {"$ref": "#/components/schemas/ProblemDetails"}}
+        },
+    }
+
+
+router = APIRouter(
+    prefix="/prompt-requests",
+    tags=["prompt-requests"],
+    responses={
+        status.HTTP_422_UNPROCESSABLE_CONTENT: _problem_response_spec(
+            "Request validation failed (RFC 9457 Problem Details)."
+        ),
+        status.HTTP_500_INTERNAL_SERVER_ERROR: _problem_response_spec(
+            "Unexpected internal server error (RFC 9457 Problem Details)."
+        ),
+    },
+)
 
 
 def get_prompt_request_service(
@@ -31,6 +54,14 @@ def get_prompt_request_service(
     "",
     response_model=PromptRequestRead,
     status_code=status.HTTP_201_CREATED,
+    responses={
+        status.HTTP_400_BAD_REQUEST: _problem_response_spec(
+            "Malformed HTTP headers or request framing (RFC 9457 Problem Details)."
+        ),
+        status.HTTP_413_CONTENT_TOO_LARGE: _problem_response_spec(
+            "HTTP request body exceeds MAX_REQUEST_BODY_BYTES (RFC 9457 Problem Details)."
+        ),
+    },
     summary="Create a new prompt request",
 )
 async def create_prompt_request(
@@ -77,7 +108,9 @@ async def list_prompt_requests(
     name="get_prompt_request",
     response_model=PromptRequestRead,
     responses={
-        status.HTTP_404_NOT_FOUND: {"description": "Prompt request not found."},
+        status.HTTP_404_NOT_FOUND: _problem_response_spec(
+            "Prompt request not found (RFC 9457 Problem Details)."
+        ),
     },
     summary="Get a prompt request by UUID",
 )
@@ -86,10 +119,4 @@ async def get_prompt_request(
     service: Annotated[PromptRequestService, Depends(get_prompt_request_service)],
 ) -> PromptRequestRead:
     """Retrieve a single persisted prompt request by its UUID."""
-    try:
-        return await service.get_prompt_request(id)
-    except PromptRequestNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Prompt request not found.",
-        ) from exc
+    return await service.get_prompt_request(id)

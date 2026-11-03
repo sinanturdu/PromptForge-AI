@@ -1,6 +1,6 @@
 # PromptForge AI — Teknik Mimari Dokümantasyonu (v1.2)
 
-> **Uygulama Durumu Bildirimi (Milestone 3C-1):** Bu doküman, PromptForge AI platformunun onaylanmış hedef mimarisini ve aşamalı yol haritasını tanımlar. Şu anki depoda **Milestone 2A temel altyapısı**, **Milestone 3A asenkron veritabanı bağlantı temeli**, **Milestone 3B ilk dört ORM modeli ile Alembic göç sistemi** (`0001_initial_schema`) ve **Milestone 3C-1 Prompt Yönetimi REST API, Pydantic v2 şemaları, `PromptRequestRepository` ve `PromptRequestService` katmanları** (`POST /api/v1/prompt-requests`, `GET /api/v1/prompt-requests/{id}`, `GET /api/v1/prompt-requests`) uygulanmıştır. Yapılandırılmış JSON loglama, `X-Request-ID` ve merkezi Problem Details hata yönetimi (**Milestone 3C-2**), değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues` — Milestone 7), LLM sağlayıcı entegrasyonu, AI ajanları, `CanonicalPrompt` derleyicisi, değerlendirme motoru, token analizi ve sesli girdi (Speech-to-Text) bileşenleri **henüz kodlanmamıştır**.
+> **Uygulama Durumu Bildirimi (Milestone 3C-2):** Bu doküman, PromptForge AI platformunun onaylanmış hedef mimarisini ve aşamalı yol haritasını tanımlar. Şu anki depoda **Milestone 2A temel altyapısı**, **Milestone 3A asenkron veritabanı bağlantı temeli**, **Milestone 3B ilk dört ORM modeli ile Alembic göç sistemi** (`0001_initial_schema`), **Milestone 3C-1 Prompt Yönetimi REST API, Pydantic v2 şemaları, `PromptRequestRepository` ve `PromptRequestService` katmanları** (`POST /api/v1/prompt-requests`, `GET /api/v1/prompt-requests/{id}`, `GET /api/v1/prompt-requests`) ve **Milestone 3C-2 yapılandırılmış JSON loglama, sunucu taraflı `X-Request-ID` izleme, HTTP gövde boyutu sınırı ve merkezi RFC 9457 Problem Details hata yönetimi** uygulanmıştır. Değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues` — Milestone 7), LLM sağlayıcı entegrasyonu, AI ajanları, `CanonicalPrompt` derleyicisi, değerlendirme motoru, token analizi ve sesli girdi (Speech-to-Text) bileşenleri **henüz kodlanmamıştır**.
 
 ---
 
@@ -19,14 +19,15 @@ Platform basit bir sohbet arayüzü değildir; temel ilkeleri şunlardır:
 
 ## 2. Kapsam ve Uygulama Durumu
 
-### 2.1 Mevcut Durum — Milestone 2A, 3A, 3B & 3C-1 (Uygulandı)
+### 2.1 Mevcut Durum — Milestone 2A, 3A, 3B, 3C-1 & 3C-2 (Uygulandı)
 
 - `backend/` ve `frontend/` ayrımına sahip monorepo yapısı
 - Python 3.12, `uv`, FastAPI uygulama fabrikası (`create_app`), `lifespan` kaynak yönetimi ve `GET /api/v1/health` uç noktası
-- `pydantic-settings` ortam yapılandırması (`DATABASE_URL`, varsayılan `backend/data/promptforge.db`) ve SQLAlchemy 2.0 Async + `aiosqlite` oturum altyapısı (`DatabaseSessionManager`, `get_db_session`, yabancı anahtar kısıtları ve dosya tabanlı SQLite için WAL modu)
+- `pydantic-settings` ortam yapılandırması (`DATABASE_URL`, `LOG_LEVEL`, `MAX_REQUEST_BODY_BYTES`, varsayılan `backend/data/promptforge.db`) ve SQLAlchemy 2.0 Async + `aiosqlite` oturum altyapısı (`DatabaseSessionManager`, `get_db_session`, yabancı anahtar kısıtları ve dosya tabanlı SQLite için WAL modu)
 - SQLAlchemy 2.0 `DeclarativeBase` (`app/db/base.py`), ilk dört ORM modeli (`PromptRequest`, `WorkflowRun`, `PromptVersion`, `AgentRun`) ve CWD'den bağımsız asenkron Alembic göç sistemi (`0001_initial_schema`)
 - Prompt yönetimi REST API uç noktaları (`POST /api/v1/prompt-requests`, `GET /api/v1/prompt-requests/{id}`, `GET /api/v1/prompt-requests`), Pydantic v2 doğrulama şemaları (`PromptRequestCreate`, `PromptRequestRead`, `PromptRequestListResponse`), `PromptRequestRepository` ve `PromptRequestService` (`app/modules/prompts/`)
-- Otomatik OpenAPI şeması (`/docs`, `/redoc`, `/api/v1/openapi.json`)
+- Yapılandırılmış UTC JSON loglama (`app/core/logging.py`), sunucu taraflı `X-Request-ID` izleme ve `MAX_REQUEST_BODY_BYTES` HTTP gövde boyutu denetimi (`app/api/middleware.py`) ile merkezi RFC 9457 Problem Details (`application/problem+json`) hata yönetimi (`app/core/errors.py`, `app/api/error_handlers.py`)
+- Otomatik OpenAPI şeması (`/docs`, `/redoc`, `/api/v1/openapi.json` — `ProblemDetails` şeması ile uyumlu)
 - Ruff, `mypy --strict` ve `pytest` doğrulama altyapısı
 - React 19, Vite 8, TypeScript (`strict`), Tailwind CSS v4 (`@tailwindcss/vite`), ESLint ve Vitest ile koyu temalı, duyarlı başlangıç arayüzü (sahte AI işlevi içermez)
 - GitHub Actions CI iş akışı (`.github/workflows/ci.yml`)
@@ -153,6 +154,13 @@ flowchart TD
   - `PromptRequestRepository` (`app/modules/prompts/repository.py`): FastAPI'den bağımsız olarak `AsyncSession` üzerinde parametreli SQLAlchemy 2.0 sorguları çalıştırır; sayfalama sorgularında tüm tabloyu belleğe almadan `OFFSET`/`LIMIT` ve deterministik `ORDER BY created_at DESC, id DESC` sıralaması uygular.
   - `PromptRequestService` (`app/modules/prompts/service.py`): İşlem (`commit` / hata anında açık `rollback`) sınırlarını yönetir ve bulunamayan kayıtlar için `PromptRequestNotFoundError` üretir.
 - **Veritabanı ön koşulu:** FastAPI açılışında otomatik göç çalıştırılmaz; yerel veritabanı ilk kullanımdan önce açıkça `uv run alembic upgrade head` komutuyla hazırlanır.
+
+### 4.4 Yapılandırılmış Loglama, İstek İzleme, Problem Details ve HTTP Güvenliği (Milestone 3C-2 — Uygulandı)
+
+- **Yapılandırılmış JSON Loglama (`app/core/logging.py`):** Standart Python `logging` modülü ile `stdout` üzerine UTC ISO-8601 zaman damgalı tek satırlık JSON logları (`timestamp`, `level`, `logger`, `message`, `request_id` ve bağlama göre `method`, `path`, `status_code`, `duration_ms`, `error_code`, `workflow_run_id`, `agent_name`, `exception_type`) üretilir. `LOG_LEVEL` (`DEBUG`..`CRITICAL`, varsayılan `INFO`) ile yapılandırılır ve çoklu `create_app()` çağrılarında mükerrer handler biriktirmez. `raw_prompt`, `user_context`, istek/yanıt gövdeleri, ham sorgu dizeleri, API anahtarları, erişim belirteçleri ve veritabanı kimlik bilgileri asla loglanmaz veya `[REDACTED]` olarak maskelenir.
+- **İstek İzleme (`RequestTracingMiddleware` — `app/api/middleware.py`):** Her HTTP isteğine sunucu tarafında üretilen benzersiz `uuid4` kimliği atanır (`ContextVar` + `scope["state"]["request_id"]`), tüm başarılı ve hatalı yanıtlarda (`500` dahil) `X-Request-ID` başlığı ile döndürülür ve istek sonunda bağlam temizlenir.
+- **Merkezi Hata Yönetimi ve RFC 9457 Problem Details (`app/core/errors.py`, `app/api/error_handlers.py`):** `AppError` hiyerarşisi (`BadRequestError` [400], `NotFoundError` [404] -> `PromptRequestNotFoundError`, `RequestBodyTooLargeError` [413], `DomainValidationError` [422], `InternalApplicationError` [500]), FastAPI `RequestValidationError` (422), `HTTPException` ve beklenmeyen uygulama/SQLAlchemy istisnaları merkezi olarak `application/problem+json` (`ProblemDetails`) formatına dönüştürülür. `422` doğrulama hataları ham kullanıcı girdisi veya prompt metni sızdırmadan `errors: [{ "field", "code", "message" }]` dizisini döner; `500` hataları yığın izi, SQL veya bağlantı bilgisi sızdırmaz. OpenAPI şeması hata yanıtlarında doğrudan `ProblemDetails` modelini yayınlar.
+- **HTTP Gövde Boyutu Sınırı (`RequestBodySizeLimitMiddleware` — `app/api/middleware.py`):** `POST`, `PUT` ve `PATCH` isteklerinde hem `Content-Length` başlığını hem de akışlı (`chunked`) bayt sayısını denetleyerek `MAX_REQUEST_BODY_BYTES` (varsayılan `262144` bayt / 256 KiB; çok baytlı UTF-8 `20.000` karakter `raw_prompt` + `20.000` karakter `user_context` + JSON üst verisi ile tam uyumlu) sınırını aşan istekleri belleği şişirmeden `413 Content Too Large` Problem Details yanıtıyla reddeder.
 
 ---
 
@@ -561,7 +569,7 @@ flowchart LR
 | **M3A** | `pydantic-settings` ortam yapılandırması, SQLite (`backend/data/promptforge.db`) + SQLAlchemy 2.0 Async motoru, oturum yaşam döngüsü ve PostgreSQL uyumlu bağlantı katmanı | **Tamamlandı** |
 | **M3B** | İlk dört ORM modeli (`prompt_requests`, `workflow_runs`, `prompt_versions`, `agent_runs`) ve asenkron Alembic göç altyapısı (`0001_initial_schema`) | **Tamamlandı** |
 | **M3C-1** | Prompt yönetimi REST API uç noktaları (`POST/GET /api/v1/prompt-requests`), Pydantic v2 doğrulama şemaları, `PromptRequestRepository` ve `PromptRequestService` | **Tamamlandı** |
-| **M3C-2** | Yapılandırılmış JSON loglama, `X-Request-ID` ara katmanı ve merkezi RFC 9457 Problem Details hata yönetimi | Planlandı |
+| **M3C-2** | Yapılandırılmış JSON loglama, `X-Request-ID` ara katmanı, HTTP istek gövde boyutu sınırı ve merkezi RFC 9457 Problem Details hata yönetimi | **Tamamlandı** |
 | **M4** | Frontend yönlendirme, API istemcisi, TanStack Query ve prompt gönderim formu | Planlandı |
 | **M5** | `LLMProvider` protokolü, `LLMGateway`, `FakeLLMProvider` ve ilk gerçek LLM sağlayıcı adaptörü | Planlandı |
 | **M6** | `PromptEngineerAgent`, `CanonicalPrompt` ara temsili ve `GenericPromptRenderer` | Planlandı |
@@ -571,4 +579,3 @@ flowchart LR
 | **M8.6** | `prompt_detail_level`, `response_detail_preference`, `reasoning_preference` üst verisi ve görev bazlı temel optimizasyon politikaları | Planlandı (MVP Zorunlu) |
 | **M9** | Uçtan uca doğrulama, kalite değerlendirme seti ve `v0.1.0` MVP sürümü | Planlandı |
 | **Post-MVP** | Speech-to-Text, ek LLM sağlayıcıları, sağlayıcıya özgü token sayımı ve analitiği, doğrudan reasoning API kontrolleri, uzman yazılım ajanları | Planlandı |
-

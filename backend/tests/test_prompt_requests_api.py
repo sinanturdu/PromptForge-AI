@@ -150,11 +150,19 @@ def test_get_missing_prompt_request_returns_404_without_internal_db_details(
     api_client: TestClient,
 ) -> None:
     missing_id = uuid4()
-    resp = api_client.get(f"/api/v1/prompt-requests/{missing_id}")
+    target_path = f"/api/v1/prompt-requests/{missing_id}"
+    resp = api_client.get(target_path)
 
     assert resp.status_code == 404
+    assert resp.headers["content-type"].startswith("application/problem+json")
     body = resp.json()
-    assert body == {"detail": "Prompt request not found."}
+    assert body["type"] == "about:blank"
+    assert body["title"] == "Not Found"
+    assert body["status"] == 404
+    assert body["detail"] == "Prompt request not found."
+    assert body["instance"] == target_path
+    assert body["error_code"] == "prompt_request_not_found"
+    assert body["request_id"] == resp.headers["X-Request-ID"]
     assert "sqlite" not in str(body).lower()
     assert "prompt_requests" not in str(body).lower()
 

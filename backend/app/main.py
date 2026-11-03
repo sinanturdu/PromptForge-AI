@@ -2,12 +2,20 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
+from fastapi.openapi.utils import get_openapi
 
+from app.api.error_handlers import register_exception_handlers
+from app.api.middleware import RequestBodySizeLimitMiddleware, RequestTracingMiddleware
 from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
+from app.core.errors import PROBLEM_JSON_MEDIA_TYPE, ProblemDetails
+from app.core.logging import configure_logging, get_logger
 from app.db.session import DatabaseSessionManager
+
+app_logger = get_logger("app")
 
 
 @asynccontextmanager
@@ -20,16 +28,75 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         echo=settings.database_echo,
     )
     application.state.db_manager = db_manager
+    app_logger.info("Application startup completed")
     try:
         yield
     finally:
         await db_manager.dispose()
+        app_logger.info("Application shutdown completed")
+
+
+def _build_custom_openapi(application: FastAPI) -> dict[str, Any]:
+    """Generate OpenAPI schema advertising RFC 9457 Problem Details for validation errors."""
+    if application.openapi_schema is not None:
+        return application.openapi_schema
+
+    schema = get_openapi(
+        title=application.title,
+        version=application.version,
+        description=application.description,
+        routes=application.routes,
+    )
+
+    components = schema.setdefault("components", {})
+    schemas = components.setdefault("schemas", {})
+    problem_json_schema = ProblemDetails.model_json_schema(
+        ref_template="#/components/schemas/{model}"
+    )
+    defs = problem_json_schema.pop("$defs", {})
+    for def_name, def_schema in defs.items():
+        schemas.setdefault(def_name, def_schema)
+    schemas["ProblemDetails"] = problem_json_schema
+
+    for path_item in schema.get("paths", {}).values():
+        if not isinstance(path_item, dict):
+            continue
+        for operation in path_item.values():
+            if not isinstance(operation, dict):
+                continue
+            responses = operation.get("responses")
+            if not isinstance(responses, dict):
+                continue
+            if "422" in responses:
+                responses["422"] = {
+                    "description": "Request validation failed (RFC 9457 Problem Details).",
+                    "content": {
+                        PROBLEM_JSON_MEDIA_TYPE: {
+                            "schema": {"$ref": "#/components/schemas/ProblemDetails"}
+                        }
+                    },
+                }
+
+    schemas.pop("HTTPValidationError", None)
+    schemas.pop("ValidationError", None)
+
+    application.openapi_schema = schema
+    return schema
+
+
+class _PromptForgeFastAPI(FastAPI):
+    """FastAPI subclass overriding `.openapi()` to publish Problem Details schemas."""
+
+    def openapi(self) -> dict[str, Any]:
+        return _build_custom_openapi(self)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
     resolved_settings = settings if settings is not None else get_settings()
-    application = FastAPI(
+    configure_logging(level=resolved_settings.log_level)
+
+    application = _PromptForgeFastAPI(
         title=resolved_settings.app_name,
         version=resolved_settings.app_version,
         description="Multi-agent prompt optimization platform.",
@@ -39,6 +106,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     application.state.settings = resolved_settings
+
+    # Register inner middleware first so RequestTracingMiddleware wraps the full stack.
+    application.add_middleware(
+        RequestBodySizeLimitMiddleware,
+        max_body_bytes=resolved_settings.max_request_body_bytes,
+    )
+    application.add_middleware(RequestTracingMiddleware)
+
+    register_exception_handlers(application)
     application.include_router(api_router, prefix=resolved_settings.api_v1_prefix)
     return application
 

@@ -4,6 +4,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import NotFoundError
 from app.models.prompt_request import PromptRequest
 from app.modules.prompts.repository import PromptRequestRepository
 from app.modules.prompts.schemas import (
@@ -16,12 +17,15 @@ from app.modules.prompts.schemas import (
 )
 
 
-class PromptRequestNotFoundError(Exception):
+class PromptRequestNotFoundError(NotFoundError):
     """Raised when a requested PromptRequest record does not exist."""
 
     def __init__(self, prompt_request_id: UUID) -> None:
         self.prompt_request_id = prompt_request_id
-        super().__init__(f"Prompt request '{prompt_request_id}' was not found.")
+        super().__init__(
+            detail="Prompt request not found.",
+            error_code="prompt_request_not_found",
+        )
 
 
 class PromptRequestService:
