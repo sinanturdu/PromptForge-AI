@@ -2,16 +2,17 @@
 
 FastAPI tabanlı modüler monolit backend. Mimari ayrıntılar için bkz. [`../docs/architecture.md`](../docs/architecture.md), [`../docs/adr/ADR-003-three-evaluation-rounds-cap.md`](../docs/adr/ADR-003-three-evaluation-rounds-cap.md) ve [`../docs/adr/ADR-009-sqlite-to-postgresql-portability.md`](../docs/adr/ADR-009-sqlite-to-postgresql-portability.md).
 
-## Mevcut durum (Milestone 2A, 3A & 3B — Uygulandı)
+## Mevcut durum (Milestone 2A, 3A, 3B & 3C-1 — Uygulandı)
 
 - `GET /api/v1/health` uç noktası ve otomatik OpenAPI dokümantasyonu (`/docs`, `/redoc`, `/api/v1/openapi.json`)
 - `pydantic-settings` tabanlı ortam yapılandırması (`app/core/config.py`)
 - SQLAlchemy 2.0 Async motoru, asenkron oturum yönetimi (`DatabaseSessionManager`, `get_db_session`) ve FastAPI `lifespan` entegrasyonu (`app/db/session.py`)
 - SQLAlchemy 2.0 `DeclarativeBase` (`app/db/base.py`), UTC farkındalıklı zaman damgası (`UTCDateTime`), adlandırma kuralları (`NAMING_CONVENTION`) ve ilk dört temel ORM modeli (`app/models/`)
 - Asenkron uyumlu, çalışma dizininden (CWD) bağımsız Alembic veritabanı göç (migration) sistemi (`alembic.ini`, `migrations/`, `app/db/migrations.py`) ve başlangıç revizyonu (`0001_initial_schema`)
+- Prompt istek yönetimi REST API uç noktaları (`POST /api/v1/prompt-requests`, `GET /api/v1/prompt-requests/{id}`, `GET /api/v1/prompt-requests`), Pydantic v2 doğrulama şemaları, `PromptRequestRepository` ve `PromptRequestService` katmanları (`app/modules/prompts/`, `app/api/v1/routes/prompt_requests.py`)
 - pytest, Ruff ve `mypy --strict` doğrulama altyapısı
 
-> **Not (Planlanan Bileşenler):** Hata/loglama ve depo/servis katmanları (Milestone 3C), prompt gönderim API uç noktaları, `evaluations` / `criterion_scores` / `evaluation_issues` tabloları (Milestone 7), AI ajanları (`PromptEngineerAgent`, `PromptCriticAgent`) ve LLM sağlayıcı entegrasyonları **henüz uygulanmamıştır**.
+> **Not (Planlanan Bileşenler):** Yapılandırılmış JSON loglama, `X-Request-ID` ara katmanı ve merkezi RFC 9457 Problem Details hata yönetimi (**Milestone 3C-2**), iş akışı çalıştırma uç noktaları, `evaluations` / `criterion_scores` / `evaluation_issues` tabloları (Milestone 7), AI ajanları (`PromptEngineerAgent`, `PromptCriticAgent`) ve LLM sağlayıcı entegrasyonları **henüz uygulanmamıştır**.
 
 ---
 
@@ -123,20 +124,64 @@ uv run --directory backend alembic upgrade head
 
 ---
 
+## Prompt Yönetimi API, Şema, Depo ve Servis Katmanı (Milestone 3C-1)
+
+> **Veritabanı Göç Ön Koşulu:** Uygulama açılışında otomatik göç veya `Base.metadata.create_all()` çalıştırılmaz. API uç noktalarını yerel ortamda ilk kez kullanmadan önce şemanın açıkça oluşturulması gerekir:
+>
+> ```powershell
+> cd backend
+> uv run alembic upgrade head
+> ```
+
+### 1. REST API Uç Noktaları (`app/api/v1/routes/prompt_requests.py`)
+
+| Metot ve Yol | Başarı Durumu | Açıklama |
+|---|---|---|
+| `POST /api/v1/prompt-requests` | `201 Created` | Yeni bir `PromptRequest` kaydeder, oluşturulan kaynağı döndürür ve `Location: /api/v1/prompt-requests/{id}` başlığı ekler. |
+| `GET /api/v1/prompt-requests/{id}` | `200 OK` / `404 Not Found` | UUID ile tek bir prompt isteğini getirir. Kayıt yoksa iç veritabanı detayı sızdırmadan `404` döner; bozuk UUID değerlerinde `422` döner. |
+| `GET /api/v1/prompt-requests` | `200 OK` | Kayıtlı prompt isteklerini sayfalı (`page >= 1`, `1 <= page_size <= 100`, varsayılan `page=1`, `page_size=20`) ve deterministik sıralamayla (`created_at DESC, id DESC`) listeler. |
+
+### 2. Pydantic v2 Şemaları ve Doğrulama Kuralları (`app/modules/prompts/schemas.py`)
+
+- **`PromptRequestCreate` (`extra="forbid"`):**
+  - Bilinmeyen/fazladan alanları sessizce yok saymak yerine `422` ile reddeder.
+  - `raw_prompt`: Zorunlu metin, `1..20.000` karakter; boş veya yalnızca boşluk (`whitespace`) içeren girdiler reddedilir.
+  - `user_context`: İsteğe bağlı (`None`), en fazla `20.000` karakter; yalnızca boşluk içeren değerler `None` olarak normalize edilir.
+  - `output_language` (`<= 32` karakter) ve `task_profile` (`<= 64` karakter): İsteğe bağlı (`None`); kenar boşlukları kırpılır, boş değerler `None` yapılır.
+  - ORM varsayılanlarıyla birebir uyumlu enum alanları (`app/models/enums.py` tek doğruluk kaynağıdır):
+    - `target_mode`: `generic` (varsayılan), `openai`, `anthropic`, `google`
+    - `prompt_detail_level`: `low`, `medium` (varsayılan), `high`
+    - `response_detail_preference`: `minimal`, `balanced` (varsayılan), `comprehensive`
+    - `reasoning_preference`: `auto` (varsayılan), `low`, `medium`, `high`
+- **`PromptRequestRead` (`from_attributes=True`):** `id` (`UUID`), `raw_prompt`, `user_context`, `output_language`, `target_mode`, `task_profile`, `prompt_detail_level`, `response_detail_preference`, `reasoning_preference` ve `created_at` (UTC `datetime`) alanlarını döner.
+- **`PromptRequestListResponse`:** `{ "items": [...], "total": 0, "page": 1, "page_size": 20 }` zarfını döner.
+
+### 3. Depo (`PromptRequestRepository`) ve Servis (`PromptRequestService`) Sorumlulukları
+
+- **`PromptRequestRepository` (`app/modules/prompts/repository.py`):**
+  - FastAPI'den tamamen bağımsızdır; dışarıdan verilen `AsyncSession` üzerinde SQLAlchemy 2.0 parametreli sorgular (`select`, `func.count`) çalıştırır.
+  - Kayıt ekleme (`create` + `flush`), UUID ile tekil sorgulama (`get_by_id`), toplam kayıt sayımı (`count_all`) ve tüm tabloyu belleğe yüklemeden `OFFSET`/`LIMIT` ile deterministik sayfalı listeleme (`list_paginated`, `ORDER BY created_at DESC, id DESC`) görevlerini üstlenir.
+- **`PromptRequestService` (`app/modules/prompts/service.py`):**
+  - İş kurallarını ve işlem (transaction) sınırlarını yönetir: yazma işlemlerinde `commit()` uygular, herhangi bir hata oluştuğunda kısmi yazmaları önlemek için açıkça `rollback()` çağırıp hatayı yükseltir.
+  - Bulunamayan kayıtlar için HTTP katmanından bağımsız `PromptRequestNotFoundError` alan hatası üretir.
+
+---
+
 ## Mevcut Sınırlamalar ve Gelecek Genişleme Noktaları
 
-### Mevcut Sınırlamalar (Milestone 3B Sonu İtibarıyla)
+### Mevcut Sınırlamalar (Milestone 3C-1 Sonu İtibarıyla)
 
-- Henüz iş mantığı depoları (repositories), servis katmanı veya prompt gönderim/sorgulama REST uç noktaları yoktur (Milestone 3C+ kapsamında eklenecektir).
+- Yapılandırılmış JSON loglama, `X-Request-ID` ara katmanı ve merkezi RFC 9457 Problem Details hata yanıtları henüz uygulanmamıştır (**Milestone 3C-2** kapsamında eklenecektir).
+- Kayıt silme veya geçmiş prompt isteklerini düzenleme uç noktaları bu aşamada kapsam dışıdır.
 - Değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues`) henüz oluşturulmamıştır (Milestone 7 kapsamında eklenecektir).
 - Henüz gerçek veya sahte (`FakeLLMProvider`) LLM yürütmesi, `CanonicalPrompt` derleyicileri veya otomatik revizyon döngüsü uygulanmamıştır.
 - Kullanıcı kimlik doğrulama ve proje tabloları ilk MVP kapsamı dışındadır (`ADR-008`).
 
 ### Gelecek Genişleme Noktaları
 
-- **Milestone 3C:** Yapılandırılmış loglama, RFC 9457 Problem Details hata yönetimi ve SQLAlchemy `AsyncSession` kullanan depo/servis katmanları.
-- **Milestone 5–6:** `AgentRun` kayıtlarını dolduran `LLMGateway` ve `CanonicalPrompt` üreten `PromptEngineerAgent`.
-- **Milestone 7:** Yeni bir Alembic revizyonu ile `evaluations`, `criterion_scores` ve `evaluation_issues` tablolarının `prompt_versions`, `workflow_runs` ve `agent_runs` tablolarına bağlanması.
+- **Milestone 3C-2 (Planlandı):** Yapılandırılmış JSON loglama, `X-Request-ID` izleme başlığı ve RFC 9457 Problem Details hata yönetimi.
+- **Milestone 5–6 (Planlandı):** `AgentRun` kayıtlarını dolduran `LLMGateway`, `PromptEngineerAgent` ve iş akışı başlatma uç noktaları.
+- **Milestone 7 (Planlandı):** Yeni bir Alembic revizyonu ile `evaluations`, `criterion_scores` ve `evaluation_issues` tablolarının eklenmesi.
 - **Post-MVP PostgreSQL Geçişi:** Lehçeden bağımsız şema ve `env.py` yapısı sayesinde `postgresql+asyncpg://...` bağlantı dizesiyle doğrudan PostgreSQL üzerinde göç çalıştırabilme.
 
 ---
@@ -148,12 +193,15 @@ uv run --directory backend alembic upgrade head
 
 ```powershell
 cd backend
-uv sync --python 3.12                      # .venv oluşturur ve bağımlılıkları kurar
-uv run uvicorn app.main:app --reload       # http://127.0.0.1:8000
-uv run pytest -q                           # tüm backend testleri (M2A + M3A + M3B)
-uv run pytest tests/test_database.py -q    # yalnızca M3A veritabanı bağlantı testleri
-uv run pytest tests/test_migrations.py -q  # yalnızca M3B ORM ve Alembic göç testleri
-uv run ruff check .                        # lint kontrolü
-uv run ruff format --check .               # format kontrolü
-uv run mypy app tests                      # strict tip kontrolü
+uv sync --python 3.12                                 # .venv oluşturur ve bağımlılıkları kurar
+uv run alembic upgrade head                           # yerel veritabanı şemasını oluşturur/günceller
+uv run uvicorn app.main:app --reload                  # http://127.0.0.1:8000
+uv run pytest -q                                      # tüm backend testleri (M2A + M3A + M3B + M3C-1)
+uv run pytest tests/test_database.py -q               # yalnızca M3A veritabanı bağlantı testleri
+uv run pytest tests/test_migrations.py -q             # yalnızca M3B ORM ve Alembic göç testleri
+uv run pytest tests/test_prompt_repository.py -q      # yalnızca M3C-1 depo ve servis testleri
+uv run pytest tests/test_prompt_requests_api.py -q    # yalnızca M3C-1 REST API entegrasyon testleri
+uv run ruff check .                                   # lint kontrolü
+uv run ruff format --check .                          # format kontrolü
+uv run mypy app tests migrations                      # strict tip kontrolü
 ```

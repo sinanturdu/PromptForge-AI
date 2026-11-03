@@ -1,6 +1,6 @@
 # PromptForge AI — Teknik Mimari Dokümantasyonu (v1.2)
 
-> **Uygulama Durumu Bildirimi (Milestone 3B):** Bu doküman, PromptForge AI platformunun onaylanmış hedef mimarisini ve aşamalı yol haritasını tanımlar. Şu anki depoda **Milestone 2A temel altyapısı**, **Milestone 3A asenkron veritabanı bağlantı temeli** (`pydantic-settings`, SQLAlchemy 2.0 Async motoru, `aiosqlite` oturum yönetimi, SQLite PRAGMA/WAL) ve **Milestone 3B ORM modelleri ile Alembic göç sistemi** (`prompt_requests`, `workflow_runs`, `prompt_versions`, `agent_runs` tabloları ve `0001_initial_schema` revizyonu) uygulanmıştır. Hata/loglama ve servis/depo katmanı (Milestone 3C), değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues` — Milestone 7), LLM sağlayıcı entegrasyonu, AI ajanları, `CanonicalPrompt` derleyicisi, değerlendirme motoru, token analizi ve sesli girdi (Speech-to-Text) bileşenleri **henüz kodlanmamıştır**.
+> **Uygulama Durumu Bildirimi (Milestone 3C-1):** Bu doküman, PromptForge AI platformunun onaylanmış hedef mimarisini ve aşamalı yol haritasını tanımlar. Şu anki depoda **Milestone 2A temel altyapısı**, **Milestone 3A asenkron veritabanı bağlantı temeli**, **Milestone 3B ilk dört ORM modeli ile Alembic göç sistemi** (`0001_initial_schema`) ve **Milestone 3C-1 Prompt Yönetimi REST API, Pydantic v2 şemaları, `PromptRequestRepository` ve `PromptRequestService` katmanları** (`POST /api/v1/prompt-requests`, `GET /api/v1/prompt-requests/{id}`, `GET /api/v1/prompt-requests`) uygulanmıştır. Yapılandırılmış JSON loglama, `X-Request-ID` ve merkezi Problem Details hata yönetimi (**Milestone 3C-2**), değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues` — Milestone 7), LLM sağlayıcı entegrasyonu, AI ajanları, `CanonicalPrompt` derleyicisi, değerlendirme motoru, token analizi ve sesli girdi (Speech-to-Text) bileşenleri **henüz kodlanmamıştır**.
 
 ---
 
@@ -19,12 +19,13 @@ Platform basit bir sohbet arayüzü değildir; temel ilkeleri şunlardır:
 
 ## 2. Kapsam ve Uygulama Durumu
 
-### 2.1 Mevcut Durum — Milestone 2A, 3A & 3B (Uygulandı)
+### 2.1 Mevcut Durum — Milestone 2A, 3A, 3B & 3C-1 (Uygulandı)
 
 - `backend/` ve `frontend/` ayrımına sahip monorepo yapısı
 - Python 3.12, `uv`, FastAPI uygulama fabrikası (`create_app`), `lifespan` kaynak yönetimi ve `GET /api/v1/health` uç noktası
 - `pydantic-settings` ortam yapılandırması (`DATABASE_URL`, varsayılan `backend/data/promptforge.db`) ve SQLAlchemy 2.0 Async + `aiosqlite` oturum altyapısı (`DatabaseSessionManager`, `get_db_session`, yabancı anahtar kısıtları ve dosya tabanlı SQLite için WAL modu)
 - SQLAlchemy 2.0 `DeclarativeBase` (`app/db/base.py`), ilk dört ORM modeli (`PromptRequest`, `WorkflowRun`, `PromptVersion`, `AgentRun`) ve CWD'den bağımsız asenkron Alembic göç sistemi (`0001_initial_schema`)
+- Prompt yönetimi REST API uç noktaları (`POST /api/v1/prompt-requests`, `GET /api/v1/prompt-requests/{id}`, `GET /api/v1/prompt-requests`), Pydantic v2 doğrulama şemaları (`PromptRequestCreate`, `PromptRequestRead`, `PromptRequestListResponse`), `PromptRequestRepository` ve `PromptRequestService` (`app/modules/prompts/`)
 - Otomatik OpenAPI şeması (`/docs`, `/redoc`, `/api/v1/openapi.json`)
 - Ruff, `mypy --strict` ve `pytest` doğrulama altyapısı
 - React 19, Vite 8, TypeScript (`strict`), Tailwind CSS v4 (`@tailwindcss/vite`), ESLint ve Vitest ile koyu temalı, duyarlı başlangıç arayüzü (sahte AI işlevi içermez)
@@ -87,8 +88,8 @@ flowchart TD
 
     subgraph BE["Backend - FastAPI Moduler Monolit"]
         HEALTH["GET /api/v1/health (M2A Uygulandi)"]
-        API["REST API v1 Uclari (Planlandi: M3-M8.6)"]
-        SVC["Uygulama Servisleri ve Politikalar (Planlandi: M3-M8.6)"]
+        API["REST API v1 Uclari (M3C-1 prompt-requests Uygulandi; runs M6-M8.6 Planlandi)"]
+        SVC["Uygulama Servisleri (M3C-1 PromptRequestService Uygulandi)"]
         RUNNER["InProcessTaskRunner (Planlandi: M6)"]
         WF["RevisionWorkflow - Maks 3 Degerlendirme Turu (Planlandi: M6-M8)"]
         COMP["Prompt Compiler ve Hedef Renderers (Planlandi: M6 ve M8.5)"]
@@ -105,7 +106,7 @@ flowchart TD
             FAKE["FakeLLMProvider (deterministik testler)"]
         end
 
-        REPO["SQLAlchemy Async Repositories (Planlandi: M3C)"]
+        REPO["SQLAlchemy Async Repositories (M3C-1 PromptRequestRepository Uygulandi)"]
     end
 
     DB[("SQLite - MVP (M3A Baglanti + M3B Ilk 4 Tablo ve Alembic Uygulandi)")]
@@ -138,6 +139,20 @@ flowchart TD
 - **Arabulucu (Mediator) ilkesi:** Ajanlar veritabanını, HTTP katmanını veya birbirlerini doğrudan çağıramaz; tüm koordinasyon `RevisionWorkflow` üzerinden yürütülür.
 - **Sağlayıcı yalıtımı:** Harici SDK tipleri `llm/providers/` dışına sızmaz; ajanlar yalnızca `LLMGateway` ile konuşur.
 - **Geliştirme ortamı ayrımı:** Geliştirme sırasında kullanılan IDE veya yardımcı yapay zekâ araçları, çalışma zamanındaki `LLMProvider` katmanından tamamen bağımsızdır.
+
+### 4.3 Prompt Yönetimi API, Şema, Depo ve Servis Mimarisi (Milestone 3C-1 — Uygulandı)
+
+- **Uç noktalar (`app/api/v1/routes/prompt_requests.py`):**
+  - `POST /api/v1/prompt-requests` (`201 Created`, `Location: /api/v1/prompt-requests/{id}` başlığı ile)
+  - `GET /api/v1/prompt-requests/{id}` (`200 OK`, kayıt yoksa iç veritabanı detayı sızdırmadan `404 Not Found`, geçersiz UUID için `422`)
+  - `GET /api/v1/prompt-requests` (`200 OK`, `page >= 1`, `1 <= page_size <= 100`, varsayılan `page=1`, `page_size=20`)
+- **Pydantic v2 şemaları ve doğrulama kuralları (`app/modules/prompts/schemas.py`):**
+  - `PromptRequestCreate` (`extra="forbid"`): Bilinmeyen alanları reddeder; `raw_prompt` için boş/yalnızca-boşluk olmama ve `1..20.000` karakter sınırını zorunlu tutar; `user_context` (`<= 20.000`), `output_language` (`<= 32`) ve `task_profile` (`<= 64`) alanlarını doğrular; `app/models/enums.py` üzerindeki enum ve ORM varsayılanlarını (`generic`, `medium`, `balanced`, `auto`) tek doğruluk kaynağı olarak kullanır.
+  - `PromptRequestRead` (`from_attributes=True`) ve `PromptRequestListResponse` (`items`, `total`, `page`, `page_size`) çıktı şemalarını tanımlar.
+- **Depo ve servis ayrımı:**
+  - `PromptRequestRepository` (`app/modules/prompts/repository.py`): FastAPI'den bağımsız olarak `AsyncSession` üzerinde parametreli SQLAlchemy 2.0 sorguları çalıştırır; sayfalama sorgularında tüm tabloyu belleğe almadan `OFFSET`/`LIMIT` ve deterministik `ORDER BY created_at DESC, id DESC` sıralaması uygular.
+  - `PromptRequestService` (`app/modules/prompts/service.py`): İşlem (`commit` / hata anında açık `rollback`) sınırlarını yönetir ve bulunamayan kayıtlar için `PromptRequestNotFoundError` üretir.
+- **Veritabanı ön koşulu:** FastAPI açılışında otomatik göç çalıştırılmaz; yerel veritabanı ilk kullanımdan önce açıkça `uv run alembic upgrade head` komutuyla hazırlanır.
 
 ---
 
@@ -545,7 +560,8 @@ flowchart LR
 | **M2A** | Monorepo iskeleti, FastAPI `/api/v1/health`, React + Tailwind başlangıç kabuğu, test/lint/CI, mimari ve ADR dokümanları | Tamamlandı |
 | **M3A** | `pydantic-settings` ortam yapılandırması, SQLite (`backend/data/promptforge.db`) + SQLAlchemy 2.0 Async motoru, oturum yaşam döngüsü ve PostgreSQL uyumlu bağlantı katmanı | **Tamamlandı** |
 | **M3B** | İlk dört ORM modeli (`prompt_requests`, `workflow_runs`, `prompt_versions`, `agent_runs`) ve asenkron Alembic göç altyapısı (`0001_initial_schema`) | **Tamamlandı** |
-| **M3C** | Yapılandırılmış JSON loglama, Problem Details hata yönetimi ve temel CRUD servis/uç noktaları | Planlandı |
+| **M3C-1** | Prompt yönetimi REST API uç noktaları (`POST/GET /api/v1/prompt-requests`), Pydantic v2 doğrulama şemaları, `PromptRequestRepository` ve `PromptRequestService` | **Tamamlandı** |
+| **M3C-2** | Yapılandırılmış JSON loglama, `X-Request-ID` ara katmanı ve merkezi RFC 9457 Problem Details hata yönetimi | Planlandı |
 | **M4** | Frontend yönlendirme, API istemcisi, TanStack Query ve prompt gönderim formu | Planlandı |
 | **M5** | `LLMProvider` protokolü, `LLMGateway`, `FakeLLMProvider` ve ilk gerçek LLM sağlayıcı adaptörü | Planlandı |
 | **M6** | `PromptEngineerAgent`, `CanonicalPrompt` ara temsili ve `GenericPromptRenderer` | Planlandı |
