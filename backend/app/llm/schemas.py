@@ -48,6 +48,29 @@ class TokenUsage(LLMModel):
     reasoning_tokens: TokenCount | None = None
 
 
+class GatewayPolicy(LLMModel):
+    request_timeout_seconds: float = Field(default=20.0, gt=0, le=300, allow_inf_nan=False)
+    call_deadline_seconds: float = Field(default=90.0, gt=0, le=900, allow_inf_nan=False)
+    max_retries: int = Field(default=2, ge=0, le=2)
+    json_repair_attempts: int = Field(default=1, ge=0, le=1)
+
+
+class CallMetadata(LLMModel):
+    """Content-free metadata; identifiers must still be treated as untrusted strings."""
+
+    provider: Identifier | None = None
+    requested_model: Identifier | None = None
+    resolved_model: Identifier | None = None
+    usage: TokenUsage | None = None
+    upstream_request_id: Identifier | None = Field(default=None, repr=False)
+    request_id: Identifier | None = Field(default=None, repr=False)
+    attempts: int = Field(default=1, ge=0, le=4)
+    retries: int = Field(default=0, ge=0, le=2)
+    repair_attempted: bool = False
+    duration_ms: float = Field(default=0.0, ge=0, allow_inf_nan=False)
+    usage_complete: bool = False
+
+
 class LLMResponse(LLMModel):
     provider: Identifier
     resolved_model: Identifier | None = None
@@ -55,18 +78,7 @@ class LLMResponse(LLMModel):
     finish_reason: Literal["complete", "length", "refusal", "other"]
     usage: TokenUsage | None = None
     upstream_request_id: Identifier | None = Field(default=None, repr=False)
-
-
-class CallMetadata(LLMModel):
-    """Content-free metadata; identifiers must still be treated as untrusted strings."""
-
-    provider: Identifier
-    resolved_model: Identifier | None = None
-    usage: TokenUsage | None = None
-    upstream_request_id: Identifier | None = Field(default=None, repr=False)
-    request_id: Identifier | None = Field(default=None, repr=False)
-    attempts: int = Field(default=1, ge=1)
-    repair_attempted: bool = False
+    call_metadata: CallMetadata | None = None
 
 
 class StructuredResult[T: BaseModel](LLMModel):

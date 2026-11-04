@@ -10,7 +10,7 @@ from json import JSONDecodeError
 from typing import Literal
 
 import openai
-from openai import AsyncOpenAI, omit
+from openai import AsyncOpenAI, DefaultAsyncHttpxClient, omit
 from openai.types.responses import Response, ResponseInputParam, ResponseTextConfigParam
 from pydantic import SecretStr, ValidationError
 
@@ -157,7 +157,10 @@ class OpenAILLMProvider:
         client: AsyncOpenAI | None = None,
         owns_client: bool = False,
         temperature_models: frozenset[str] = frozenset(),
+        timeout_seconds: float = 20.0,
     ) -> None:
+        if not math.isfinite(timeout_seconds) or not 0 < timeout_seconds <= 300:
+            raise LLMError(LLMErrorCode.INVALID_CONFIGURATION)
         if client is not None and client.max_retries != 0:
             raise LLMError(LLMErrorCode.INVALID_CONFIGURATION)
         if client is None:
@@ -170,7 +173,8 @@ class OpenAILLMProvider:
                 api_key=api_key.get_secret_value(),
                 base_url="https://api.openai.com/v1",
                 max_retries=0,
-                timeout=20.0,
+                timeout=timeout_seconds,
+                http_client=DefaultAsyncHttpxClient(follow_redirects=False),
             )
             owns_client = True
         # SDK DEBUG logs include request content. Do not inherit OPENAI_LOG=debug.

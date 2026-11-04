@@ -11,12 +11,25 @@ from pydantic_settings import SettingsConfigDict
 
 from app.core.config import Settings
 from app.llm.composition import create_provider
+from app.llm.contracts import LLMProvider
 from app.llm.errors import LLMError, LLMErrorCode
 from app.llm.gateway import LLMGateway
 from app.llm.providers.fake import FakeLLMProvider
-from app.llm.schemas import LLMMessage, LLMRequest, LLMResponse, ModelSettings, TokenUsage
+from app.llm.schemas import (
+    GatewayPolicy,
+    LLMMessage,
+    LLMRequest,
+    LLMResponse,
+    ModelSettings,
+    TokenUsage,
+)
 
 SENTINEL = "PRIVATE_PROMPT_SECRET_SENTINEL"
+
+
+def single_attempt_gateway(provider: LLMProvider) -> LLMGateway:
+    """Retain adapter/contract tests for explicitly disabled reliability features."""
+    return LLMGateway(provider, policy=GatewayPolicy(max_retries=0, json_repair_attempts=0))
 
 
 class IsolatedSettings(Settings):
@@ -144,7 +157,7 @@ async def test_scripted_failure_single_attempt(
 ) -> None:
     provider = FakeLLMProvider([code, response()])
     with pytest.raises(LLMError) as caught:
-        await LLMGateway(provider).generate_json(request_model, Output)
+        await single_attempt_gateway(provider).generate_json(request_model, Output)
     assert caught.value.code == code
     assert provider.calls == 1
     assert SENTINEL not in str(caught.value)
@@ -163,7 +176,7 @@ async def test_structured_success_schema_metadata_and_borrowed_lifetime(
 
     usage = TokenUsage(input_tokens=2, output_tokens=3, total_tokens=5)
     provider = InspectingFake([response(usage=usage, upstream_request_id="upstream-1")])
-    result = await LLMGateway(provider).generate_json(request_model, Output)
+    result = await single_attempt_gateway(provider).generate_json(request_model, Output)
     assert result.value == Output(answer=42)
     assert result.metadata.usage == usage
     assert result.metadata.request_id == "local-1"
@@ -197,7 +210,7 @@ async def test_gateway_rejection_without_retry(
 ) -> None:
     provider = FakeLLMProvider([response(**fields), response()])
     with pytest.raises(LLMError) as caught:
-        await LLMGateway(provider).generate_json(request_model, Output)
+        await single_attempt_gateway(provider).generate_json(request_model, Output)
     assert caught.value.code == code
     assert provider.calls == 1
     await provider.aclose()
@@ -216,7 +229,7 @@ async def test_privacy_and_offline_operation(
     monkeypatch.setattr(socket.socket, "connect", no_network)
     monkeypatch.setattr(socket, "create_connection", no_network)
     provider = FakeLLMProvider([response(text=SENTINEL), response()])
-    gateway = LLMGateway(provider)
+    gateway = single_attempt_gateway(provider)
     with pytest.raises(LLMError) as caught:
         await gateway.generate_json(request_model, Output)
     assert SENTINEL not in "".join(traceback.format_exception(caught.value))
@@ -242,12 +255,14 @@ async def test_unexpected_errors_are_safe_and_cancellation_propagates(
             pass
 
     with pytest.raises(LLMError) as caught:
-        await LLMGateway(BrokenProvider(RuntimeError(SENTINEL))).generate(request_model)
+        await single_attempt_gateway(BrokenProvider(RuntimeError(SENTINEL))).generate(request_model)
     assert caught.value.code == LLMErrorCode.PROVIDER_UNAVAILABLE
     assert caught.value.__context__ is None
     assert SENTINEL not in "".join(traceback.format_exception(caught.value))
     with pytest.raises(asyncio.CancelledError):
-        await LLMGateway(BrokenProvider(asyncio.CancelledError())).generate(request_model)
+        await single_attempt_gateway(BrokenProvider(asyncio.CancelledError())).generate(
+            request_model
+        )
 
 
 @pytest.mark.anyio
@@ -284,7 +299,7 @@ def test_fake_cannot_impersonate_real_provider() -> None:
 @pytest.mark.anyio
 async def test_plain_text_generation(request_model: LLMRequest) -> None:
     provider = FakeLLMProvider([response(text="Explicit fake output")])
-    result = await LLMGateway(provider).generate(request_model)
+    result = await single_attempt_gateway(provider).generate(request_model)
     assert result.text == "Explicit fake output"
     assert provider.calls == 1
     await provider.aclose()
@@ -298,7 +313,7 @@ async def test_unsupported_output_schema_fails_before_generation(request_model: 
 
     provider = FakeLLMProvider([response()])
     with pytest.raises(LLMError) as caught:
-        await LLMGateway(provider).generate_json(request_model, UnsupportedOutput)
+        await single_attempt_gateway(provider).generate_json(request_model, UnsupportedOutput)
     assert caught.value.code == LLMErrorCode.INVALID_REQUEST
     assert caught.value.__context__ is None
     assert provider.calls == 0

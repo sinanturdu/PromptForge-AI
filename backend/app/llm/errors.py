@@ -4,7 +4,7 @@ from enum import StrEnum
 
 from pydantic import Field
 
-from app.llm.schemas import Identifier, LLMModel
+from app.llm.schemas import CallMetadata, Identifier, LLMModel
 
 
 class LLMErrorCode(StrEnum):
@@ -24,6 +24,7 @@ class LLMErrorCode(StrEnum):
     SCRIPT_EXHAUSTED = "script_exhausted"
     PROVIDER_CLOSED = "provider_closed"
     INVALID_RESPONSE = "invalid_response"
+    DEADLINE_EXCEEDED = "deadline_exceeded"
 
 
 _MESSAGES: dict[LLMErrorCode, str] = {
@@ -43,6 +44,7 @@ _MESSAGES: dict[LLMErrorCode, str] = {
     LLMErrorCode.SCRIPT_EXHAUSTED: "Fake LLM response script is exhausted.",
     LLMErrorCode.PROVIDER_CLOSED: "LLM provider is closed.",
     LLMErrorCode.INVALID_RESPONSE: "LLM provider returned an invalid response.",
+    LLMErrorCode.DEADLINE_EXCEEDED: "LLM operation deadline was exceeded.",
 }
 
 
@@ -52,6 +54,7 @@ class LLMErrorMetadata(LLMModel):
     upstream_request_id: Identifier | None = Field(default=None, repr=False)
     http_status: int | None = Field(default=None, ge=100, le=599)
     retry_after_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    call: CallMetadata | None = None
 
 
 class LLMError(Exception):

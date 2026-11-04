@@ -18,5 +18,7 @@ def create_provider(
         # Real SDK types and imports stay behind the explicit provider selection.
         from app.llm.providers.openai import OpenAILLMProvider
 
-        return OpenAILLMProvider(api_key=settings.openai_api_key)
+        return OpenAILLMProvider(
+            api_key=settings.openai_api_key, timeout_seconds=settings.llm_request_timeout_seconds
+        )
     raise LLMError(LLMErrorCode.INVALID_CONFIGURATION)

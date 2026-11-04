@@ -16,13 +16,19 @@ from pydantic_settings import SettingsConfigDict
 
 from app.core.config import Settings
 from app.llm.composition import create_provider
+from app.llm.contracts import LLMProvider
 from app.llm.errors import LLMError, LLMErrorCode
 from app.llm.gateway import LLMGateway
 from app.llm.providers.openai import OpenAILLMProvider
-from app.llm.schemas import LLMMessage, LLMRequest, ModelSettings
+from app.llm.schemas import GatewayPolicy, LLMMessage, LLMRequest, ModelSettings
 
 PRIVATE = "PRIVATE_PROMPT_OUTPUT_SENTINEL"
 SECRET = "synthetic-offline-key-sentinel"
+
+
+def single_attempt_gateway(provider: LLMProvider) -> LLMGateway:
+    """Retain adapter/contract tests for explicitly disabled reliability features."""
+    return LLMGateway(provider, policy=GatewayPolicy(max_retries=0, json_repair_attempts=0))
 
 
 class IsolatedSettings(Settings):
@@ -137,7 +143,7 @@ async def test_sdk_request_and_text_translation(
 async def test_structured_output_and_local_validation(
     harness: Harness, request_model: LLMRequest
 ) -> None:
-    gateway = LLMGateway(harness.provider)
+    gateway = single_attempt_gateway(harness.provider)
     result = await gateway.generate_json(request_model, Output)
     assert result.value.answer == 42
     assert harness.requests[0]["text"] == {
@@ -369,7 +375,7 @@ async def test_sdk_status_errors_safe_and_no_retry(
     harness.body = {"error": {"code": body_code, "message": f"{PRIVATE} {SECRET}"}}
     harness.headers["retry-after"] = "2.5"
     with pytest.raises(LLMError) as caught:
-        await LLMGateway(harness.provider).generate(request_model)
+        await single_attempt_gateway(harness.provider).generate(request_model)
     error = caught.value
     assert error.code == expected
     assert error.metadata.http_status == status
@@ -478,7 +484,10 @@ async def test_composition_and_constructor_options(
     assert options["max_retries"] == 0
     assert options["base_url"] == "https://api.openai.com/v1"
     assert options["timeout"] == 20.0
+    assert options["http_client"].follow_redirects is False
     await provider.aclose()
+    # This test's client factory borrows the harness instead of adopting this transport.
+    await options["http_client"].aclose()
 
 
 def test_openai_selection_without_key_fails() -> None:
@@ -542,7 +551,7 @@ async def test_missing_text_gateway_failure(
     else:
         harness.body["output"][0]["content"][0]["text"] = text
     with pytest.raises(LLMError) as caught:
-        await LLMGateway(harness.provider).generate(request_model)
+        await single_attempt_gateway(harness.provider).generate(request_model)
     assert caught.value.code == LLMErrorCode.MISSING_TEXT
     assert len(harness.requests) == 1
 
@@ -577,3 +586,61 @@ async def test_unsafe_upstream_id_dropped(harness: Harness, request_model: LLMRe
     harness.headers["x-request-id"] = SECRET
     result = await harness.provider.generate(request_model)
     assert result.upstream_request_id is None
+
+
+@pytest.mark.anyio
+async def test_real_sdk_shared_retry_repair_wire_budget(request_model: LLMRequest) -> None:
+    bodies: list[dict[str, Any]] = []
+    invalid = payload()
+    invalid["output"][0]["content"][0]["text"] = "invalid JSON"
+    steps = [
+        (429, {"error": {"code": "rate_limit_exceeded"}}),
+        (200, invalid),
+        (503, {"error": {"code": "server_error"}}),
+        (200, payload()),
+    ]
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        index = len(bodies)
+        assert index < 4, "SDK made an unbudgeted request"
+        bodies.append(json.loads(request.content))
+        status, body = steps[index]
+        return httpx.Response(status, json=body, headers={"x-request-id": "req_budget"})
+
+    async def no_wait(delay: float) -> None:
+        pass
+
+    client = AsyncOpenAI(
+        api_key=SECRET,
+        max_retries=0,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
+    )
+    provider = OpenAILLMProvider(client=client, owns_client=True)
+    try:
+        result = await LLMGateway(provider, sleep=no_wait, jitter=lambda: 0).generate_json(
+            request_model, Output
+        )
+    finally:
+        await provider.aclose()
+    assert result.value.answer == 42
+    assert result.metadata.attempts == len(bodies) == 4
+    assert result.metadata.retries == 2 and result.metadata.repair_attempted
+    assert bodies[0]["text"]["format"] == bodies[3]["text"]["format"]
+
+
+@pytest.mark.anyio
+async def test_lifespan_preserves_borrowed_sdk_ownership(harness: Harness) -> None:
+    from unittest.mock import patch
+
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+
+    borrowed = OpenAILLMProvider(client=harness.client)
+    with (
+        patch("app.main.create_provider", return_value=borrowed),
+        TestClient(create_app(IsolatedSettings())) as client,
+    ):
+        assert client.get("/api/v1/health").status_code == 200
+    assert not harness.client.is_closed()
+    assert not harness.requests

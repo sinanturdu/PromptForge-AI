@@ -2,12 +2,14 @@
 
 FastAPI tabanlı modüler monolit backend. Mimari ayrıntılar için bkz. [`../docs/architecture.md`](../docs/architecture.md), [`../docs/adr/ADR-003-three-evaluation-rounds-cap.md`](../docs/adr/ADR-003-three-evaluation-rounds-cap.md) ve [`../docs/adr/ADR-009-sqlite-to-postgresql-portability.md`](../docs/adr/ADR-009-sqlite-to-postgresql-portability.md).
 
-## LLM foundation (M5A-2 / M5A-3)
+## LLM foundation (M5A-2 through M5A-4)
 
 Provider-independent contracts, an offline fake and an OpenAI Responses adapter are
 available under `app/llm/`. `LLM_PROVIDER=fake` remains the default. Explicit OpenAI
 composition requires a backend-only `OPENAI_API_KEY`; callers select the model.
-No AI endpoint or automatic generation is active. See the
+The gateway owns bounded retries, one JSON repair, shared deadlines and safe
+diagnostics. FastAPI lifespan owns one provider and closes it on shutdown or failed
+initialization. No AI endpoint or automatic generation is active. See the
 [LLM setup, offline tests and limitations](app/llm/README.md).
 
 ## Mevcut durum (Milestone 2A, 3A, 3B, 3C-1 & 3C-2 — Uygulandı)
@@ -21,7 +23,7 @@ No AI endpoint or automatic generation is active. See the
 - Yapılandırılmış UTC JSON loglama (`app/core/logging.py`), sunucu taraflı `X-Request-ID` izleme ve HTTP gövde boyutu sınırı ara katmanları (`app/api/middleware.py`) ile merkezi RFC 9457 Problem Details hata yönetimi (`app/core/errors.py`, `app/api/error_handlers.py`)
 - pytest, Ruff ve `mypy --strict` doğrulama altyapısı
 
-> **Not (Planlanan Bileşenler):** İş akışı çalıştırma uç noktaları, `evaluations` / `criterion_scores` / `evaluation_issues` tabloları (Milestone 7), AI ajanları (`PromptEngineerAgent`, `PromptCriticAgent`) ve LLM sağlayıcı entegrasyonları **henüz uygulanmamıştır**.
+> **Not (Planlanan Bileşenler):** İş akışı çalıştırma uç noktaları, `evaluations` / `criterion_scores` / `evaluation_issues` tabloları (Milestone 7) ve AI ajanları (`PromptEngineerAgent`, `PromptCriticAgent`) **henüz uygulanmamıştır**.
 
 ---
 
