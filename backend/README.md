@@ -2,6 +2,14 @@
 
 FastAPI tabanlı modüler monolit backend. Mimari ayrıntılar için bkz. [`../docs/architecture.md`](../docs/architecture.md), [`../docs/adr/ADR-003-three-evaluation-rounds-cap.md`](../docs/adr/ADR-003-three-evaluation-rounds-cap.md) ve [`../docs/adr/ADR-009-sqlite-to-postgresql-portability.md`](../docs/adr/ADR-009-sqlite-to-postgresql-portability.md).
 
+## LLM foundation (M5A-2 / M5A-3)
+
+Provider-independent contracts, an offline fake and an OpenAI Responses adapter are
+available under `app/llm/`. `LLM_PROVIDER=fake` remains the default. Explicit OpenAI
+composition requires a backend-only `OPENAI_API_KEY`; callers select the model.
+No AI endpoint or automatic generation is active. See the
+[LLM setup, offline tests and limitations](app/llm/README.md).
+
 ## Mevcut durum (Milestone 2A, 3A, 3B, 3C-1 & 3C-2 — Uygulandı)
 
 - `GET /api/v1/health` uç noktası ve otomatik OpenAPI dokümantasyonu (`/docs`, `/redoc`, `/api/v1/openapi.json`)

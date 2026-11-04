@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Final, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import ArgumentError
@@ -52,7 +52,8 @@ class Settings(BaseSettings):
     app_name: str = "PromptForge AI"
     app_version: str = "0.0.1"
     api_v1_prefix: str = "/api/v1"
-    llm_provider: Literal["fake"] = "fake"
+    llm_provider: Literal["fake", "openai"] = "fake"
+    openai_api_key: SecretStr | None = Field(default=None, repr=False)
 
     log_level: LogLevelName = DEFAULT_LOG_LEVEL
     max_request_body_bytes: int = Field(default=DEFAULT_MAX_REQUEST_BODY_BYTES, gt=0)

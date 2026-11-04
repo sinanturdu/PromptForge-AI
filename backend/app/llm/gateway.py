@@ -5,7 +5,7 @@ from contextlib import suppress
 from pydantic import BaseModel, ValidationError
 
 from app.llm.contracts import LLMProvider
-from app.llm.errors import LLMError, LLMErrorCode
+from app.llm.errors import LLMError, LLMErrorCode, LLMErrorMetadata
 from app.llm.schemas import CallMetadata, LLMRequest, LLMResponse, StructuredResult
 
 
@@ -18,16 +18,18 @@ class LLMGateway:
     async def generate(self, request: LLMRequest) -> LLMResponse:
         response: LLMResponse | None = None
         failure = LLMErrorCode.PROVIDER_UNAVAILABLE
+        metadata = LLMErrorMetadata()
         try:
             response = await self._provider.generate(request)
         except LLMError as exc:
             failure = exc.code
+            metadata = exc.metadata
         except Exception:
             # Cancellation (BaseException) must propagate without being converted.
             pass
         if response is None:
             # Raise outside the handler so even __context__ retains no raw exception.
-            raise LLMError(failure)
+            raise LLMError(failure, metadata=metadata)
         if response.finish_reason == "refusal":
             raise LLMError(LLMErrorCode.REFUSAL)
         if response.finish_reason == "length":

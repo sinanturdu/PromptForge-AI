@@ -2,6 +2,10 @@
 
 from enum import StrEnum
 
+from pydantic import Field
+
+from app.llm.schemas import Identifier, LLMModel
+
 
 class LLMErrorCode(StrEnum):
     INVALID_CONFIGURATION = "invalid_configuration"
@@ -19,10 +23,11 @@ class LLMErrorCode(StrEnum):
     MISSING_TEXT = "missing_text"
     SCRIPT_EXHAUSTED = "script_exhausted"
     PROVIDER_CLOSED = "provider_closed"
+    INVALID_RESPONSE = "invalid_response"
 
 
 _MESSAGES: dict[LLMErrorCode, str] = {
-    LLMErrorCode.INVALID_CONFIGURATION: "Unsupported LLM configuration; select the fake provider.",
+    LLMErrorCode.INVALID_CONFIGURATION: "LLM configuration is unsupported.",
     LLMErrorCode.MISSING_CREDENTIALS: "Required LLM credentials are missing.",
     LLMErrorCode.AUTHENTICATION: "LLM authentication failed.",
     LLMErrorCode.PERMISSION: "LLM access was denied.",
@@ -37,15 +42,25 @@ _MESSAGES: dict[LLMErrorCode, str] = {
     LLMErrorCode.MISSING_TEXT: "LLM response contains no usable text.",
     LLMErrorCode.SCRIPT_EXHAUSTED: "Fake LLM response script is exhausted.",
     LLMErrorCode.PROVIDER_CLOSED: "LLM provider is closed.",
+    LLMErrorCode.INVALID_RESPONSE: "LLM provider returned an invalid response.",
 }
 
 
-class LLMError(Exception):
-    """Only a validated category and fixed message; never accept raw exception text."""
+class LLMErrorMetadata(LLMModel):
+    """Content-free fields for future retry handling; no raw bodies or exceptions."""
 
-    def __init__(self, code: LLMErrorCode) -> None:
+    upstream_request_id: Identifier | None = Field(default=None, repr=False)
+    http_status: int | None = Field(default=None, ge=100, le=599)
+    retry_after_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+
+
+class LLMError(Exception):
+    """Validated category, fixed message and content-free metadata only."""
+
+    def __init__(self, code: LLMErrorCode, *, metadata: LLMErrorMetadata | None = None) -> None:
         # Reject untyped callers safely without interpolating their input.
         if not isinstance(code, LLMErrorCode):
             code = LLMErrorCode.INVALID_CONFIGURATION
         self.code = code
+        self.metadata = metadata if metadata is not None else LLMErrorMetadata()
         super().__init__(_MESSAGES[code])

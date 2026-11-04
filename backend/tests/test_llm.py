@@ -262,7 +262,7 @@ async def test_default_composition_without_credentials(monkeypatch: pytest.Monke
     await provider.aclose()
 
 
-@pytest.mark.parametrize("selection", ["openai", "gemini", "unknown", SENTINEL])
+@pytest.mark.parametrize("selection", ["anthropic", "gemini", "unknown", SENTINEL])
 def test_unsupported_configuration_is_safe(selection: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LLM_PROVIDER", selection)
     with pytest.raises(ValidationError) as caught:

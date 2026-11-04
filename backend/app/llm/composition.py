@@ -14,4 +14,9 @@ def create_provider(
 ) -> LLMProvider:
     if settings.llm_provider == "fake":
         return FakeLLMProvider(script)
+    if settings.llm_provider == "openai":
+        # Real SDK types and imports stay behind the explicit provider selection.
+        from app.llm.providers.openai import OpenAILLMProvider
+
+        return OpenAILLMProvider(api_key=settings.openai_api_key)
     raise LLMError(LLMErrorCode.INVALID_CONFIGURATION)

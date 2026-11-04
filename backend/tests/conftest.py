@@ -1,6 +1,8 @@
 """Shared pytest fixtures and persistent local database safety guards."""
 
 import hashlib
+import os
+import socket
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +10,25 @@ from pathlib import Path
 import pytest
 
 from app.core.config import DEFAULT_SQLITE_DB_PATH
+
+# Apply before test collection imports app.main or any provider composition.
+os.environ["LLM_PROVIDER"] = "fake"
+os.environ.pop("OPENAI_API_KEY", None)
+
+
+@pytest.fixture(autouse=True)
+def offline_llm_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each test starts in fake mode; adapter tests opt in with synthetic credentials."""
+    monkeypatch.setenv("LLM_PROVIDER", "fake")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    connect = socket.socket.connect
+
+    def local_connect(sock: socket.socket, address: object) -> None:
+        if isinstance(address, tuple) and address[0] not in {"127.0.0.1", "::1", "localhost"}:
+            pytest.fail("Backend tests must not connect to external services")
+        connect(sock, address)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(socket.socket, "connect", local_connect)
 
 
 @dataclass(frozen=True)
