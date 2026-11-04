@@ -114,7 +114,7 @@ npm run build        # Üretim derlemesi doğrulaması (dist/)
 ```
 
 
-## Chromium E2E — Milestone 4C-2A
+## Chromium E2E — Milestone 4C-2A ve 4C-2B
 
 E2E testleri gerçek React arayüzünü, Vite proxy’sini ve FastAPI/SQLite backend’ini kullanır; MSW kullanılmaz. Vitest yalnızca `src/**/*.test.{ts,tsx}` dosyalarını, Playwright ise `e2e/**/*.spec.ts` dosyalarını keşfeder.
 
@@ -133,25 +133,38 @@ Linux CI için Chromium sistem bağımlılıkları da gerekir: `npx playwright i
 `frontend/` dizininden:
 
 ```sh
-npm run test:e2e                     # Dört Chromium smoke testi
+npm run test:e2e                     # Tüm 16 Chromium testi
 npm run test:e2e -- --repeat-each=3   # Kararlılık kontrolü
 npm run test:e2e:ui                  # Etkileşimli Playwright test arayüzü
 npm run test:e2e:report              # Son HTML raporunu aç
+npm run test:e2e -- e2e/smoke.spec.ts
+npm run test:e2e -- e2e/prompt-workflow.spec.ts
+npm run test:e2e -- e2e/history-filters.spec.ts
+npm run test:e2e -- --grep "reload and a fresh browser context"
+npx playwright show-trace test-results/<test-klasörü>/trace.zip
 ```
 
 ### İzolasyon ve yaşam döngüsü
 
-- Her Playwright çalıştırmasında işletim sisteminin geçici dizininde benzersiz `promptforge-e2e-*` klasörü ve yeni `e2e.sqlite3` veritabanı oluşturulur. Backend başlatıcısı bu dizinin dışındaki veya mevcut bir veritabanını reddeder.
+- Her test için işletim sisteminin geçici dizininde benzersiz `promptforge-e2e-*` klasörü ve yeni `e2e.sqlite3` veritabanı oluşturulur. Backend başlatıcısı bu dizinin dışındaki veya mevcut bir veritabanını reddeder.
 - Mevcut Alembic göçleri yalnızca açıkça belirtilen bu veritabanına uygulanır. Uygulamanın `DATABASE_URL` değeri de aynı mutlak yola zorlanır. `backend/data/promptforge.db` ve `.env` dosyaları değiştirilmez.
 - Backend yalnızca `127.0.0.1:18080`, Vite yalnızca `127.0.0.1:15173` üzerinde çalışır. Dolu portlar hata üretir; mevcut geliştirme sunucuları yeniden kullanılmaz. Backend portu göçlerden önce bağlanır; sağlık yanıtında çalıştırmaya özel servis kimliği doğrulanır.
 - E2E Vite yapılandırması yerel `.env` dosyalarını okumaz; miras alınmış `VITE_API_BASE_URL` dahil API adresi ayarları test proxy’sine zorlanır.
-- Playwright global setup sunucuları başlatır ve teardown fonksiyonunu döndürür. Normal bitiş, test hatası veya setup hatasında Vite kapatılır, doğrudan başlatılmış Python işlemi sonlandırılır ve çıkışı beklendikten sonra yalnızca oluşturulan geçici klasör silinir. İşlemin zorla öldürülmesi veya sistem çökmesi teardown’u engelleyebilir; böyle bir durumda geçici klasör kalabilir, geliştirme veritabanına yönlendirme yapılmaz.
-- UI modunda aynı oturum boyunca sunucular açık kalır ve UI kapatılınca temizlenir. Testler veri yazmaz; her test ayrı browser context kullanır ve boş geçmiş testi sıraya bağımlı değildir. Gelecekte veri yazan senaryolar eklenirken ayrıca test başına veri izolasyonu gerekir.
+- `e2e/fixtures.ts` içindeki otomatik test fixture’ı mevcut `global-setup.ts` başlatma/temizleme fonksiyonunu her test için çağırır. M4C-2A sunucu başlatıcısı ve güvenlik kontrolleri korunur; Playwright yapılandırmasında ayrıca global setup çalıştırılmaz. Normal bitiş, test hatası veya setup hatasında Vite kapatılır, doğrudan başlatılmış Python işlemi sonlandırılır ve çıkışı beklendikten sonra yalnızca oluşturulan geçici klasör silinir. İşlemin zorla öldürülmesi veya sistem çökmesi teardown’u engelleyebilir; böyle bir durumda geçici klasör kalabilir, geliştirme veritabanına yönlendirme yapılmaz.
+- UI modunda da her test başında yeni sunucular ve boş veritabanı hazırlanır; test bitiminde temizlenir. Böylece veri yazan testler, tekrarlar ve tek dosya çalıştırmaları birbirini etkilemez; mevcut boş geçmiş smoke testi herhangi bir sırada çalışabilir. Veritabanı reset/silme API’si eklenmez. Test verileri benzersiz kimliklerle oluşturulur. Arama/filtre veri kümeleri gerçek API üzerinden, prompt kaydetme akışları tarayıcı formu üzerinden hazırlanır.
 
 ### Kapsam ve hata çıktıları
 
-Başlangıç kontrolleri, Yeni Prompt ↔ Prompt Geçmişi gezinmesi, 375 × 812 mobil görünüm ve boş geçmiş doğrulanır. Mobil test metin girişi, kaydet düğmesine kaydırma ve yatay taşma kontrolü yapar; kayıt göndermez.
+Toplam **16 test** bulunur:
+
+- `smoke.spec.ts` — Önceki dört test: başlangıç, gezinme, mobil temel kontroller ve boş geçmiş. Assertions korunmuştur; yalnızca ortak fixture import edilir.
+- `prompt-workflow.spec.ts` — Altı test: tüm tercihlerle tarayıcıdan kayıt, reload ve yeni browser context üzerinden kalıcılık, boş ve yalnızca boşluk içeren girdilerin POST/veritabanı kaydı oluşturmadan reddedilmesi, geçmişten doğru detaya gidip dönme ve 375 × 812 mobil kayıt/arama/filtre/detay akışı.
+- `history-filters.spec.ts` — Altı test: prompt ve proje bağlamında anahtar kelime araması, eşleşmeyen sonuçlar, ChatGPT/GPT–Claude–Gemini filtreleri (Universal dahil kontrol verileriyle), birleşik arama/hedef filtresi, URL parametre sırasından bağımsız doğrudan bağlantı, reload, Geri/İleri, tekil/tüm filtre temizleme ve filtreli sayfalama/detaydan dönüş.
+
+Testler gerçek FastAPI ve Alembic ile hazırlanmış SQLite veritabanını kullanır; MSW, sahte başarılı API yanıtları veya sabit beklemeler kullanılmaz. E2E kapsamı için ek paket veya ortam önkoşulu eklenmemiştir. Tam suite’i üç bağımsız kez çalıştırmak için `npm run test:e2e` komutunu üç kez çalıştırın; `--repeat-each=3` de her testi üç kez yeni veritabanında çalıştırır.
+
+HTML raporundaki başarısız testin Attachments bölümünden trace ve ekran görüntüsüne ulaşılabilir. CLI trace yolu için `<test-klasörü>` yerine gerçek `test-results/` alt klasörünü kullanın. Trace yalnızca başarısız testlerde saklanır; başarılı çalıştırmalarda trace dosyası beklenmez.
 
 Yerel ve CI çalıştırmaları tek worker kullanır; tekrar deneme yoktur. Hata durumunda trace ve ekran görüntüsü `test-results/` altında tutulur. HTML raporu `playwright-report/` altında oluşur; raporlar ve geçici çıktılar Git tarafından yok sayılır. CI ayrı E2E işinde Chromium’u kurar, testleri çalıştırır ve raporları yedi gün saklar.
 
-Playwright yaşam döngüsü ve browser kurulumu: [global setup/teardown](https://playwright.dev/docs/test-global-setup-teardown), [browser kurulumu](https://playwright.dev/docs/browsers).
+Playwright yaşam döngüsü ve browser kurulumu: [test fixtures](https://playwright.dev/docs/test-fixtures), [browser kurulumu](https://playwright.dev/docs/browsers).

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures'
 
 test('application startup shows the primary prompt controls', async ({ page }) => {
   await page.goto('/')
