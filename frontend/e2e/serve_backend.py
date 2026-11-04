@@ -22,6 +22,9 @@ def main() -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         if os.name == "nt":
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        else:
+            # Rebind after POSIX TIME_WAIT without sharing an active listening port.
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listener.bind(("127.0.0.1", 18080))
         listener.listen(128)
 
