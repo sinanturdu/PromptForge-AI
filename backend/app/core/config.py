@@ -46,11 +46,13 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
         frozen=True,
+        hide_input_in_errors=True,
     )
 
     app_name: str = "PromptForge AI"
     app_version: str = "0.0.1"
     api_v1_prefix: str = "/api/v1"
+    llm_provider: Literal["fake"] = "fake"
 
     log_level: LogLevelName = DEFAULT_LOG_LEVEL
     max_request_body_bytes: int = Field(default=DEFAULT_MAX_REQUEST_BODY_BYTES, gt=0)
