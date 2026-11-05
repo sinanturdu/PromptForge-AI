@@ -25,6 +25,11 @@ reference cases and an offline, content-free reporting command:
 `uv run python -m benchmarks.prompt_architect --report`. Objective contract findings
 remain separate from pending human quality review; no real-model calls are made.
 
+The [M5B-4 integration boundary](../docs/architect-service-integration.md) binds
+Architect output to existing request/run identities and distinguishes candidates
+from clarification. It documents future persistence/transaction rules; current
+prompt-request APIs and database behavior remain unchanged.
+
 ## Mevcut durum (Milestone 2A, 3A, 3B, 3C-1 & 3C-2 — Uygulandı)
 
 - `GET /api/v1/health` uç noktası ve otomatik OpenAPI dokümantasyonu (`/docs`, `/redoc`, `/api/v1/openapi.json`)

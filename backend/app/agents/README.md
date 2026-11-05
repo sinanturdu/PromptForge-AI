@@ -101,3 +101,8 @@ M5B-3 extends the same fixture file with 36 human-reviewable reference cases. Th
 original nine authored outputs are explicitly marked `contract_example`; they
 remain software fixtures, not unique quality reference answers. See the
 [offline benchmark, rubric and future evaluation strategy](../../benchmarks/README.md).
+
+M5B-4 adds the opt-in `create_architect_handoff()` function for existing request DTOs
+and caller-owned run references, plus a blind Critic-input data projection. It
+validates candidate/clarification semantics without changing this agent contract or
+performing persistence. See the [integration and future transaction mapping](../../../docs/architect-service-integration.md).
