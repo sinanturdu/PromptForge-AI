@@ -90,6 +90,16 @@ and reconcile exact committed identities. Recovery diagnostics distinguish live/
 leases, unresolved operations and durable facts without changing workflows or calling
 providers. There is no automatic resume, takeover, worker or public readback endpoint.
 
+## CI runtime qualification
+
+Backend and E2E CI explicitly install uv-managed Python **3.12.16**, resolve that
+managed interpreter for frozen dependency sync, and run through `backend/.venv`.
+Before tests, `python -m app.db.verify_ci_runtime` checks the exact Python version,
+logs `SELECT sqlite_version()` from separate sqlite3/aiosqlite in-memory connections,
+and requires both to pass the existing WAL safety policy. Unsafe/unverified libraries
+fail the job; Linux is not assumed to match Windows SQLite 3.53.1. The preflight does
+not open application databases or change journals, drivers or the local default runtime.
+
 ## Mevcut durum (Milestone 2A, 3A, 3B, 3C-1 & 3C-2 — Uygulandı)
 
 - `GET /api/v1/health` uç noktası ve otomatik OpenAPI dokümantasyonu (`/docs`, `/redoc`, `/api/v1/openapi.json`)
