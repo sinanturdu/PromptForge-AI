@@ -37,8 +37,12 @@ No public API activation, workflow loop or persistence is introduced.
 
 M5D-2 adds [feedback-driven Architect revision](../docs/architect-revision.md):
 one explicit operation from a bound evaluated baseline, supported feedback and
-caller-declared protected source spans. Selection, the multi-round optimizer and
-workflow persistence remain unimplemented.
+caller-declared protected source spans.
+
+M5D-3 adds [completed evaluation history and pure selection/progress policies](../docs/optimization-policies.md):
+one to three validated rounds, ADR-007 ranking with explicit nullable scores,
+exact candidate duplicate guards and per-run revision-attempt keys. The multi-round
+executor and workflow persistence remain unimplemented.
 
 ## Mevcut durum (Milestone 2A, 3A, 3B, 3C-1 & 3C-2 — Uygulandı)
 

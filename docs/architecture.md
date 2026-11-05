@@ -232,7 +232,7 @@ Yazılım geliştirme görev türlerine göre yapılandırılabilir varsayılan 
 
 ### 7.1 Ajan Sorumlulukları
 
-- **`PromptArchitectAgent` (önceki plan adı `PromptEngineerAgent`):** M5B'de `create` için preserve/rewrite/clarify ve sparse canonical çıktı uygulandı. M5D-2'de [desteklenen Critic bulgularıyla tek revizyon](architect-revision.md) eklendi; baseline koruma ile ilk raw_prompt koruma farklıdır. Seçim motoru, çok turlu workflow ve kalıcılık halen planlanmaktadır.
+- **`PromptArchitectAgent` (önceki plan adı `PromptEngineerAgent`):** M5B'de `create` için preserve/rewrite/clarify ve sparse canonical çıktı uygulandı. M5D-2'de [desteklenen Critic bulgularıyla tek revizyon](architect-revision.md) eklendi; baseline koruma ile ilk raw_prompt koruma farklıdır. M5D-3'te [tamamlanan tur sözleşmeleri ve saf seçim/ilerleme politikaları](optimization-policies.md) uygulandı; çok turlu yürütücü ve kalıcılık halen planlanmaktadır.
 - **`PromptCriticAgent`:** M5C-2'de orijinal istek ve kesin derlenmiş aday rubric 2.0.0 ile **kör** değerlendirilir. Yapılandırılmış kriter puanları/null, desteklenen veya belirsiz sorunlar, kanıtlar ve uygulanabilir öneriler döner; toplam ve onay Python ScoringEngine sorumluluğundadır. Kalıcı değerlendirme ve workflow planlanmaktadır.
 
 ### 7.2 Değerlendirme Kuralları (Production rubric 2.0.0 — M5C-2)
@@ -575,9 +575,9 @@ flowchart LR
 | **M4B-1** | Kaydedilen prompt istekleri için sunucu taraflı sayfalamalı geçmiş arayüzü (`/history`), URL `?page=` durumu ve üst gezinme çubuğu | **Tamamlandı** |
 | **M4B-2** | Sunucu taraflı anahtar kelime araması, hedef AI ailesi filtreleme ve URL durum eşgüdümü | **Tamamlandı** |
 | **M5** | `LLMProvider` protokolü, `LLMGateway`, `FakeLLMProvider` ve ilk gerçek LLM sağlayıcı adaptörü | M5A'da uygulandı |
-| **M6** | `PromptArchitectAgent.create/revise`, sparse `CanonicalPrompt` ve `GenericPromptRenderer` | M5B/M5D-2'de uygulandı; seçim/workflow planlandı |
+| **M6** | `PromptArchitectAgent.create/revise`, sparse `CanonicalPrompt` ve `GenericPromptRenderer` | M5B/M5D-2'de uygulandı; M5D-3 saf seçim/ilerleme politikaları mevcut, workflow yürütücüsü planlandı |
 | **M7** | Bağımsız `PromptCriticAgent`, rubric 2.0.0 ve deterministik `ScoringEngine` | M5C-2'de bellek içi uygulandı; değerlendirme tabloları/kalıcılık planlandı |
-| **M8** | En fazla 3 değerlendirme turlu otomatik `RevisionWorkflow` ve en iyi sürüm seçimi | Planlandı |
+| **M8** | En fazla 3 değerlendirme turlu otomatik `RevisionWorkflow` ve en iyi sürüm seçimi | M5D-3 saf tur/seçim/ilerleme katmanı uygulandı; otomatik yürütücü ve kalıcılık planlandı |
 | **M8.5** | `OpenAIPromptRenderer`, `AnthropicPromptRenderer`, `GeminiPromptRenderer`, hedef AI seçici ve hedef farkındalıklı değerlendirme | Planlandı (MVP Zorunlu) |
 | **M8.6** | `prompt_detail_level`, `response_detail_preference`, `reasoning_preference` üst verisi ve görev bazlı temel optimizasyon politikaları | Planlandı (MVP Zorunlu) |
 | **M9** | Uçtan uca doğrulama, kalite değerlendirme seti ve `v0.1.0` MVP sürümü | Planlandı |

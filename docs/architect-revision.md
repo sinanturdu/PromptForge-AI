@@ -132,9 +132,11 @@ private. Validation failures use fixed safe errors without private exception con
 The agent logs no content. Fingerprints and supplied relationships are not security
 credentials; later persistence must verify real ownership/state transactionally.
 
-M5D-3 can add selection/progress rules; M5D-4 can evaluate revised candidates under
-the three-round cap. Neither is implemented here. No ADR-003/007 workflow policy,
-API, persistence, migration, frontend, dependency or multimodal/REA feature changes.
+[M5D-3 selection/progress rules](optimization-policies.md) now provide completed
+history, best-baseline selection and pure guards. M5D-4 can use them to evaluate
+revised candidates under the three-round cap; that executor is not implemented.
+The M5D-2 operation itself still owns no selection or workflow policy. No API,
+persistence, migration, frontend, dependency or multimodal/REA feature changes.
 
 Run `uv run pytest tests/test_architect_revision.py` and full backend checks. Tests
 cover both baselines, all decisions, exact/long spans, provenance, uncertainty,
