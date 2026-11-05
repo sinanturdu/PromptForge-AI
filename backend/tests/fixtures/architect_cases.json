@@ -1,0 +1,63 @@
+[
+  {
+    "name": "english_translation_preserve",
+    "payload": {"raw_prompt": "Translate 'Good morning' into Turkish. Return only the translation."},
+    "decision": "preserve"
+  },
+  {
+    "name": "turkish_translation_concise",
+    "payload": {"raw_prompt": "Şunu İngilizce yap: Toplantı yarın saat üçte.", "output_language": "en"},
+    "decision": "rewrite",
+    "canonical": {"task": "'Toplantı yarın saat üçte.' cümlesini İngilizceye çevir."},
+    "changes": ["Çeviri görevi ve teslim edilecek çıktı netleştirildi."],
+    "forbidden": ["XML", "Markdown", "deadline", "adım adım"]
+  },
+  {
+    "name": "turkish_creative_preserve",
+    "payload": {"raw_prompt": "Yağmurlu bir İstanbul sabahını anlatan dört dizelik bir şiir yaz. Serbest ölçü kullan."},
+    "decision": "preserve"
+  },
+  {
+    "name": "english_creative_rewrite",
+    "payload": {"raw_prompt": "A bedtime story for my six-year-old about a fox discovering the moon. Gentle, under 300 words; you choose the adventure."},
+    "decision": "rewrite",
+    "canonical": {"task": "Write a gentle bedtime story for a six-year-old about a fox discovering the moon.", "constraints": ["Keep it under 300 words.", "Choose the adventure freely."]},
+    "changes": ["Clarified the outcome while retaining creative freedom."],
+    "required": ["six-year-old", "fox", "moon", "300 words", "freely"],
+    "forbidden": ["three-act", "moral lesson", "checklist", "XML"]
+  },
+  {
+    "name": "english_analytical_rewrite",
+    "payload": {"raw_prompt": "Compare hosting plans A and B for my API and recommend one.", "user_context": "A costs $10/month and offers 1 GB RAM; B costs $20/month and offers 2 GB RAM. My priority is lower cost."},
+    "decision": "rewrite",
+    "canonical": {"task": "Compare hosting plans A and B for my API and recommend one, prioritizing lower cost.", "context": "A costs $10/month and offers 1 GB RAM. B costs $20/month and offers 2 GB RAM."},
+    "changes": ["Made the supplied comparison criteria and data explicit."],
+    "required": ["$10/month", "$20/month", "1 GB RAM", "2 GB RAM", "lower cost"],
+    "forbidden": ["99.99%", "benchmark", "Kubernetes", "weighted scoring"]
+  },
+  {
+    "name": "turkish_analytical_clarify",
+    "payload": {"raw_prompt": "Aynı sonuç hem tam olarak 100 kelime hem de en fazla 50 kelime olmalı. Bu koşullarla rapor promptu hazırla."},
+    "decision": "clarify",
+    "questions": ["Rapor için tam olarak 100 kelime mi, yoksa en fazla 50 kelime mi öncelikli?" ]
+  },
+  {
+    "name": "english_coding_rewrite",
+    "payload": {"raw_prompt": "Fix normalize_name in Python 3.12; offline only, no dependencies. Preserve the signature and all other functions.", "user_context": "Current function:\n```python\ndef normalize_name(value: str) -> str:\n    return value.strip().lower()\n```\nOnly strip surrounding whitespace; preserve case."},
+    "decision": "rewrite",
+    "canonical": {"task": "Fix normalize_name in Python 3.12 to strip surrounding whitespace while preserving case.", "input_data": "Current function:\n```python\ndef normalize_name(value: str) -> str:\n    return value.strip().lower()\n```", "constraints": ["Preserve the signature and all other functions."], "prohibitions": ["Work offline. Do not add dependencies."]},
+    "changes": ["Combined the requested behavior with the supplied code and scope limits."],
+    "required": ["Python 3.12", "preserving case", "Preserve the signature", "all other functions", "offline", "Do not add dependencies", "def normalize_name(value: str) -> str:\n    return value.strip().lower()"],
+    "forbidden": ["FastAPI", "install", "refactor the module", "pytest required"]
+  },
+  {
+    "name": "turkish_code_format_preserve",
+    "payload": {"raw_prompt": "Python 3.12'de aşağıdaki fonksiyonun ne yaptığını iki cümlede açıkla; kodu değiştirme.\n\n```python\ndef twice(x):\n    return x * 2\n```\n"},
+    "decision": "preserve"
+  },
+  {
+    "name": "english_optional_details_do_not_interrupt",
+    "payload": {"raw_prompt": "Give me three ideas for a relaxing Sunday afternoon."},
+    "decision": "preserve"
+  }
+]
