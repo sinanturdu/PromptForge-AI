@@ -17,7 +17,9 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
+    column,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,6 +28,7 @@ from app.models.enums import MAX_EVALUATION_ROUNDS_HARD_LIMIT, WorkflowRunStatus
 
 if TYPE_CHECKING:
     from app.models.agent_run import AgentRun
+    from app.models.evaluation import Evaluation
     from app.models.prompt_request import PromptRequest
     from app.models.prompt_version import PromptVersion
 
@@ -37,9 +40,38 @@ class WorkflowRun(Base):
     __table_args__ = (
         Index("ix_workflow_runs_prompt_request_id", "prompt_request_id"),
         Index("ix_workflow_runs_status", "status"),
+        Index(
+            "uq_workflow_runs_active_prompt_request",
+            "prompt_request_id",
+            unique=True,
+            sqlite_where=column("status").in_(("PENDING", "GENERATING", "EVALUATING", "REVISING")),
+            postgresql_where=column("status").in_(
+                ("PENDING", "GENERATING", "EVALUATING", "REVISING")
+            ),
+        ),
+        UniqueConstraint(
+            "prompt_request_id",
+            "client_idempotency_key_digest",
+            name="uq_workflow_runs_request_idempotency",
+        ),
         CheckConstraint(
-            "status IN ('PENDING', 'GENERATING', 'EVALUATING', 'REVISING', 'COMPLETED', 'FAILED')",
+            "status IN ('PENDING', 'GENERATING', 'EVALUATING', 'REVISING', "
+            "'COMPLETED', 'FAILED', 'CLARIFICATION_REQUIRED')",
             name="status_valid",
+        ),
+        CheckConstraint("state_revision >= 0", name="state_revision_non_negative"),
+        CheckConstraint(
+            "request_content_digest IS NULL OR length(request_content_digest) = 64",
+            name="request_digest_length",
+        ),
+        CheckConstraint(
+            "client_idempotency_key_digest IS NULL OR length(client_idempotency_key_digest) = 64",
+            name="idempotency_digest_length",
+        ),
+        CheckConstraint(
+            "(execution_token IS NULL AND lease_expires_at IS NULL) OR "
+            "(execution_token IS NOT NULL AND lease_expires_at IS NOT NULL)",
+            name="claim_lease_pair",
         ),
         CheckConstraint(
             f"max_evaluation_rounds BETWEEN 1 AND {MAX_EVALUATION_ROUNDS_HARD_LIMIT}",
@@ -80,6 +112,19 @@ class WorkflowRun(Base):
     current_round: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     completed_rounds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     config_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    request_snapshot: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
+    request_content_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    state_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    execution_token: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    client_idempotency_key_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    terminal_details: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
     final_version_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey(
@@ -121,5 +166,12 @@ class WorkflowRun(Base):
         back_populates="workflow_run",
         foreign_keys="AgentRun.workflow_run_id",
         order_by="AgentRun.started_at",
+        passive_deletes=True,
+    )
+    evaluations: Mapped[list[Evaluation]] = relationship(
+        "Evaluation",
+        back_populates="workflow_run",
+        foreign_keys="Evaluation.workflow_run_id",
+        order_by="Evaluation.evaluation_round",
         passive_deletes=True,
     )

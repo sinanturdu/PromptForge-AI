@@ -49,6 +49,7 @@ class WorkflowRunStatus(StrEnum):
     REVISING = "REVISING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+    CLARIFICATION_REQUIRED = "CLARIFICATION_REQUIRED"
 
 
 class PromptVersionSource(StrEnum):

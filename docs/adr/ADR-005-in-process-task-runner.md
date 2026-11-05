@@ -29,3 +29,12 @@ TaskRunner, recovery process, persistent status or API. The original planned
 interrupted-run policy remains FAILED (`interrupted`) when persistence and a runner
 are introduced. See [optimizer behavior and persistence gaps](../prompt-optimizer.md).
 
+## Amendment — M5E-2: terminal clarification schema
+
+WorkflowRun now permits terminal CLARIFICATION_REQUIRED, separate from COMPLETED and
+FAILED. No WorkflowRun RUNNING state is introduced. Questions belong in versioned
+terminal details, not a fabricated PromptVersion/Evaluation. Interrupted execution
+will still be FAILED with safe `interrupted` classification. This package adds schema
+only: no TaskRunner, recovery, resumption or optimizer persistence hooks. The partial
+unique index excludes terminal states so a later explicit workflow can be requested.
+

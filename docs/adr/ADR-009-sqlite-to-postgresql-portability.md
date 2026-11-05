@@ -20,3 +20,20 @@ MVP'de SQLAlchemy 2.0 Async ve Alembic ile SQLite (WAL modu) kullanılır. Tüm 
 
 - Yerel kurulum tek komutla çalışır; PostgreSQL'e geçişte yalnızca bağlantı dizesi (`postgresql+asyncpg://...`) ve `alembic upgrade head` çalıştırması yeterli olur.
 
+## Amendment — M5E-2: populated migrations and durability prerequisites
+
+`0002_workflow_persistence` adds the fifth application table and additive workflow/
+operation fields. Populated circular-FK tests showed ordinary SQLite batch rebuilding
+cannot drop referenced tables with FK enforcement active. Dedicated SQLite migration
+connections now isolate FK switching outside an explicit BEGIN IMMEDIATE transaction,
+include DDL and the version stamp atomically, check foreign_key_check before commit,
+and restore their original FK state. Active caller transactions are rejected safely.
+Application session/PRAGMA behavior is unchanged; no global FK switch is introduced.
+
+Downgrade refuses new persistent data or null telemetry that the old schema cannot
+represent; safe legacy-only downgrade preserves existing rows. Before M5E-3 enables
+concurrent durable writes, verify a patched SQLite runtime, explicit service BEGIN
+control and the chosen NORMAL/FULL power-loss durability policy. Current verification
+runtime 3.45.3 requires the documented WAL-reset fix. PostgreSQL DDL compiles, but
+server migration/concurrency testing remains future work. [Schema and migration notes](../workflow-persistence-schema.md).
+

@@ -38,6 +38,7 @@ EXPECTED_APPLICATION_TABLES = {
     "workflow_runs",
     "prompt_versions",
     "agent_runs",
+    "evaluations",
 }
 
 
@@ -104,7 +105,7 @@ async def test_initial_migration_tables_primary_keys_foreign_keys_and_metadata_s
             tables, pks, fks, schema_diffs = await async_conn.run_sync(_inspect_schema)
 
         assert EXPECTED_APPLICATION_TABLES.issubset(tables)
-        assert "evaluations" not in tables
+        assert tables == EXPECTED_APPLICATION_TABLES | {"alembic_version"}
 
         for table_name in EXPECTED_APPLICATION_TABLES:
             assert pks[table_name] == ["id"]
@@ -116,12 +117,22 @@ async def test_initial_migration_tables_primary_keys_foreign_keys_and_metadata_s
         }
         assert fks["agent_runs"] == {
             (("workflow_run_id",), "workflow_runs", ("id",)),
+            (("baseline_evaluation_id",), "evaluations", ("id",)),
         }
         assert fks["prompt_versions"] == {
             (("prompt_request_id",), "prompt_requests", ("id",)),
             (("workflow_run_id",), "workflow_runs", ("id",)),
             (("parent_version_id",), "prompt_versions", ("id",)),
             (("agent_run_id",), "agent_runs", ("id",)),
+        }
+        assert fks["evaluations"] == {
+            (("workflow_run_id",), "workflow_runs", ("id",)),
+            (
+                ("prompt_version_id", "workflow_run_id"),
+                "prompt_versions",
+                ("id", "workflow_run_id"),
+            ),
+            (("critic_agent_run_id", "workflow_run_id"), "agent_runs", ("id", "workflow_run_id")),
         }
         assert schema_diffs == []
     finally:
@@ -521,8 +532,11 @@ async def test_migration_downgrade_and_re_upgrade_succeed_with_circular_rows(
                 provider="fake",
                 model="fake-model",
                 status=AgentRunStatus.COMPLETED,
+                attempt_count=1,
+                repair_attempted=False,
             )
             version = PromptVersion(
+                # This fixture intentionally remains representable by 0001.
                 prompt_request=req,
                 workflow_run=run,
                 agent_run=agent_run,

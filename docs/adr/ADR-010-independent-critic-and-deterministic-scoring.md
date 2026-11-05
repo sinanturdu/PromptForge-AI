@@ -89,3 +89,15 @@ rubric scores are not interchangeable or silently compared across workflow round
   REA implementation or real-model calls are introduced.
 - [Critic contracts, rubric mapping, limits and future integration](../prompt-critic.md).
 
+## Amendment — M5E-2: evaluation storage representation
+
+The older three-table evaluation proposal is superseded for the MVP by one
+`evaluations` table with versioned structured assessment/gate JSON. It preserves all
+nine criterion assessments, nulls, rationales, evidence, supported/uncertain issues
+and summary. Relational identity, round, fingerprint, versions and score/status
+projections retain useful constraints without implementing scoring in SQL.
+Storage schema version starts at 1.0.0; rubric 2.0.0 and scorer 1.0.0 are unchanged.
+Unknown/missing storage versions fail validation. The existing bound evaluation and
+scoring engine validate future writes; schema existence is not operational persistence,
+semantic proof or automatic quality approval. [Implemented schema/deferred services](../workflow-persistence-schema.md).
+

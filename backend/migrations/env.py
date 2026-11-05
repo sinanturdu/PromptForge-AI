@@ -48,6 +48,9 @@ def run_migrations_offline() -> None:
 
 def do_run_migrations(connection: Connection) -> None:
     """Configure MigrationContext for the active connection and run migrations."""
+    if connection.dialect.name == "sqlite":
+        _run_sqlite_migrations(connection)
+        return
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
@@ -58,6 +61,44 @@ def do_run_migrations(connection: Connection) -> None:
 
     with context.begin_transaction():
         context.run_migrations()
+
+
+def _run_sqlite_migrations(connection: Connection) -> None:
+    """Rebuild referenced tables atomically, only on this dedicated migration connection.
+
+    PRAGMA foreign_keys cannot change inside a transaction. Never silently commit a
+    caller's transaction; injected SQLite connections must be idle on entry.
+    Explicit BEGIN includes DDL and the Alembic version stamp despite legacy driver
+    transaction control. Runtime session/engine configuration is unchanged.
+    """
+    if connection.in_transaction():
+        raise RuntimeError("SQLite migrations require an idle dedicated connection.")
+    enforce_foreign_keys = bool(connection.exec_driver_sql("PRAGMA foreign_keys").scalar())
+    connection.commit()  # End only the inspection's SQLAlchemy autobegin.
+    try:
+        connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        connection.commit()
+        with connection.begin():
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            context.configure(
+                connection=connection,
+                target_metadata=target_metadata,
+                compare_type=True,
+                compare_server_default=True,
+                render_as_batch=True,
+                transactional_ddl=True,
+            )
+            with context.begin_transaction():
+                context.run_migrations()
+            if connection.exec_driver_sql("PRAGMA foreign_key_check").first() is not None:
+                raise RuntimeError("Migration failed foreign-key integrity verification.")
+    finally:
+        if connection.in_transaction():
+            connection.rollback()
+        connection.exec_driver_sql(
+            "PRAGMA foreign_keys=ON" if enforce_foreign_keys else "PRAGMA foreign_keys=OFF"
+        )
+        connection.commit()
 
 
 async def run_async_migrations(database_url: str) -> None:

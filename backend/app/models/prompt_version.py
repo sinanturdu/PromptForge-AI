@@ -23,6 +23,7 @@ from app.models.enums import MAX_EVALUATION_ROUNDS_HARD_LIMIT, TargetMode
 
 if TYPE_CHECKING:
     from app.models.agent_run import AgentRun
+    from app.models.evaluation import Evaluation
     from app.models.prompt_request import PromptRequest
     from app.models.workflow_run import WorkflowRun
 
@@ -38,6 +39,7 @@ class PromptVersion(Base):
             name="uq_prompt_versions_request_version_number",
         ),
         UniqueConstraint("agent_run_id", name="uq_prompt_versions_agent_run_id"),
+        UniqueConstraint("id", "workflow_run_id", name="uq_prompt_versions_id_workflow"),
         Index("ix_prompt_versions_prompt_request_id", "prompt_request_id"),
         Index("ix_prompt_versions_workflow_run_id", "workflow_run_id"),
         Index("ix_prompt_versions_parent_version_id", "parent_version_id"),
@@ -120,4 +122,10 @@ class PromptVersion(Base):
         "AgentRun",
         back_populates="prompt_version",
         foreign_keys=[agent_run_id],
+    )
+    evaluations: Mapped[list[Evaluation]] = relationship(
+        "Evaluation",
+        back_populates="prompt_version",
+        foreign_keys="Evaluation.prompt_version_id",
+        passive_deletes=True,
     )
