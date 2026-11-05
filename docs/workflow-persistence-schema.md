@@ -198,6 +198,12 @@ commit-durability guarantee. No development database PRAGMAs were changed.
 References: [SQLAlchemy SQLite transactions](https://docs.sqlalchemy.org/en/21/dialects/sqlite.html#transactions-with-sqlite-and-the-sqlite3-driver),
 [Alembic SQLite batch/FK handling](https://alembic.sqlalchemy.org/en/latest/batch.html).
 
+M5E-3A now supplies a separate opt-in [runtime gate and explicit write unit](sqlite-write-transactions.md)
+with BEGIN IMMEDIATE and FULL/FK enforcement. Existing API/migration engines retain
+their behavior. The current affected runtime is refused for the new WAL path; safe
+DELETE-mode transaction tests are implemented. No workflow persistence or runtime
+upgrade is activated by this foundation.
+
 Run from backend: `uv run pytest tests/test_workflow_persistence_schema.py tests/test_persistence_contracts.py tests/test_migrations.py`, then full backend lint,
 format, strict typing and pytest. Tests use migrated temporary file databases,
 preserve the development DB guard and make no real LLM calls. PostgreSQL DDL is

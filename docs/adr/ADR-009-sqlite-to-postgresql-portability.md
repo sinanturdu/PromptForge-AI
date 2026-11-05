@@ -37,3 +37,18 @@ control and the chosen NORMAL/FULL power-loss durability policy. Current verific
 runtime 3.45.3 requires the documented WAL-reset fix. PostgreSQL DDL compiles, but
 server migration/concurrency testing remains future work. [Schema and migration notes](../workflow-persistence-schema.md).
 
+## Amendment — M5E-3A: dedicated persistent-write foundation
+
+Future workflow writes use a separately composed engine and short service-owned
+write_transaction context, not the current API read/session engine. SQLite BEGIN
+control uses isolation_level=None plus SQLAlchemy's begin hook emitting BEGIN
+IMMEDIATE; connection-level PRAGMAs are configured outside transactions. WAL/FULL,
+FK enforcement and a bounded busy timeout are explicit. No driver autocommit=False
+or SQLAlchemy AUTOCOMMIT option is mixed into this recipe.
+
+The connected SQLite version must pass a backport-aware WAL-reset capability check;
+3.45.3 remains refused for this new WAL path. DELETE-mode isolated tests prove
+transaction/lock/cleanup behavior without unsafe WAL stress. Existing API/startup,
+migration behavior and the development database are unchanged. No runtime or driver
+was installed. [Lifecycle, qualification proposal and limits](../sqlite-write-transactions.md).
+

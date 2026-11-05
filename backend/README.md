@@ -57,6 +57,13 @@ Source text stays in PromptRequest; per-run snapshots store preferences/referenc
 and a separate content digest. New migration tests use only isolated temporary DBs.
 Review the migration/runtime prerequisites before any separately approved DB upgrade.
 
+M5E-3A adds an opt-in [SQLite runtime gate and short write transaction boundary](../docs/sqlite-write-transactions.md).
+It uses explicit BEGIN IMMEDIATE, FULL synchronous mode and service-owned commit/
+rollback on a dedicated engine. Existing API sessions and migrations are unchanged;
+the current SQLite 3.45.3 is refused for new concurrent WAL workflow writes. Isolated
+DELETE-journal tests run without installing or replacing a runtime. Workflow execution
+and database hooks remain disabled; runtime qualification requires separate approval.
+
 ## Mevcut durum (Milestone 2A, 3A, 3B, 3C-1 & 3C-2 — Uygulandı)
 
 - `GET /api/v1/health` uç noktası ve otomatik OpenAPI dokümantasyonu (`/docs`, `/redoc`, `/api/v1/openapi.json`)
@@ -326,6 +333,7 @@ uv run pytest -q                                      # tüm backend testleri
 uv run pytest tests/test_database.py -q               # yalnızca M3A veritabanı bağlantı testleri
 uv run pytest tests/test_migrations.py -q             # yalnızca M3B ORM ve Alembic göç testleri
 uv run pytest tests/test_workflow_persistence_schema.py tests/test_persistence_contracts.py -q # M5E-2
+uv run pytest tests/test_write_transactions.py -q     # M5E-3A isolated transactions/runtime policy
 uv run pytest tests/test_prompt_repository.py -q      # yalnızca M3C-1 depo ve servis testleri
 uv run pytest tests/test_prompt_requests_api.py -q    # yalnızca M3C-1 REST API entegrasyon testleri
 uv run pytest tests/test_logging.py -q                # yalnızca M3C-2 yapılandırılmış loglama ve maskeleme testleri
