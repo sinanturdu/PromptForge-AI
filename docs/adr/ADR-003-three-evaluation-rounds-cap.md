@@ -37,3 +37,11 @@ not implement the workflow. Clarification has no completed candidate/version.
 See [M5D-3 contracts](../optimization-policies.md) for the current implementation
 and remaining transaction/lifecycle work.
 
+## Amendment — M5E-4: committed rounds in explicit persistent execution
+
+The opt-in persistent adapter reuses the M5D loop and publishes a round only after
+atomic Evaluation persistence and validated history readback. Reservations, provider
+retries/repairs, staged candidates, clarification and unchanged revisions do not
+increase the completed count. Existing limits/stops remain unchanged; no background
+execution or recovery is introduced. See [execution integration](../persistent-optimizer-execution.md).
+

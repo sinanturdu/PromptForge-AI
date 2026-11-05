@@ -1,5 +1,10 @@
 # Bounded in-memory optimization — M5D-4
 
+M5E-4 adds a separate [opt-in persistent entry point](persistent-optimizer-execution.md)
+using this same loop through the optional OptimizationExecution I/O seam. Default
+`optimize_prompt()` behavior remains in memory. The seam adds no scoring/selection/
+stopping algorithm and does not activate persistence for existing API requests.
+
 ## Entry point and ownership
 
 ```python
@@ -181,14 +186,17 @@ data. IDs/hashes do not prove authorization, authenticity or semantic correctnes
 | WorkflowRun | Configuration/policy snapshot, actual dispatch/current-round state separately from `len(history.rounds)`, lifecycle and safe stop/error fields. Completed execution need not be qualified. Later failure is FAILED with retained best evaluation; no `COMPLETED/error_partial`. |
 | Architect/Critic AgentRun | Actual create/revise/evaluate operations, versions and independent telemetry. Current IDs are assertions only; default revision context clears the prior Architect ID. Future persistence needs explicit per-operation ID binding and capture of failed/unchanged/clarification telemetry. |
 | PromptVersion | Completed candidate canonical/rendered text, renderer/target, source `engineer_create` or `engineer_revise`, and parent version from `baseline_round_number`, which need not be the latest version. No version for clarification/unchanged/unevaluated output. |
-| Evaluation (not implemented) | Exact candidate/Critic binding, rubric assessments/issues/evidence, null-aware scoring/gates and provenance. Final selection references an existing owned evaluated version. |
+| Evaluation (schema implemented in M5E-2; writes deferred) | Exact candidate/Critic binding, versioned assessment/gate JSON, null-aware scores and provenance. Final selection references an existing owned evaluated version. |
 
 The outcome is not a durable execution journal or complete billing ledger. It retains
 successful completed-round metadata and minimal dispatch counts, not every failed
 or non-evaluated operation's full result/usage. A persistence milestone must add that
 explicit capture boundary, concurrency-safe run/attempt reservation, version allocation,
-idempotency, null-score storage and clarification/resume lifecycle design. Existing
-WorkflowRun has no waiting-for-input state; none is invented here.
+idempotency, null-score storage and clarification/resume lifecycle design.
+M5E-2 adds terminal CLARIFICATION_REQUIRED, not a waiting/resumable state. Source
+content stays in PromptRequest; versioned persisted preference snapshots reference
+that immutable source plus a digest. [Schema contracts and remaining invariants](workflow-persistence-schema.md)
+do not activate any persistence from this optimizer.
 
 Use short transactions to authorize/load/reserve state, release sessions before LLM
 awaits, then recheck ownership/state and atomically persist completed version,

@@ -140,7 +140,7 @@ responsibilities. Qualification alone never allocates a final version.
 | Architect AgentRun | Existing context reference; Architect version/operation and its separate telemetry. |
 | Critic AgentRun | Separate executor-owned record for evaluate(), with Critic versions/telemetry. |
 | PromptVersion | Candidate canonical/rendered text, target/renderer, request/run binding; existing engineer_create source for initial preserve/rewrite. No version for clarification. |
-| Evaluation (planned table) | Exact PromptVersion and Critic run, evaluated input/target/renderer, rubric, criterion assessments/issues and Python scoring/gates, including unassessable state. |
+| Evaluation (schema implemented in M5E-2; writes deferred) | Exact PromptVersion and Critic run, evaluated input/target/renderer, rubric, versioned assessment JSON and Python scoring/gates, including unassessable state. |
 
 Use short transactions to load/check ancestry, authorization, state and idempotency,
 then snapshot and release sessions before LLM waits. Recheck source/run state and
@@ -149,12 +149,13 @@ execution telemetry and state. Repositories flush; services commit/rollback;
 DatabaseSessionManager does not auto-commit. Apply failure/cancellation bookkeeping
 and interrupted-run recovery deliberately if future execution records exist.
 
-Unresolved: concurrency-safe version allocation; separate Critic execution ancestry;
-evaluation schema/idempotency; stale request completion; durable clarification/resume
-(WorkflowRun has no waiting-for-input state); null-score/evidence/usage storage;
-historical rubric replay and final-version eligibility. None is solved by local
-UUID/hash checks. No sessions, records, migrations or evaluation persistence exist
-in this boundary.
+The [M5E-2 schema and pure storage contracts](workflow-persistence-schema.md) now
+provide Evaluation/operation uniqueness, nullable telemetry and terminal
+CLARIFICATION_REQUIRED. This boundary still performs no persistence. M5E-3 must
+implement transactional version allocation, loaded-row ancestry checks, stale
+request detection, final-version eligibility and safe failure bookkeeping. Historical
+replay and clarification resume remain future work. UUID/hash checks alone do not
+prove these invariants; this boundary opens no sessions or database transactions.
 
 Future REA evidence belongs in an explicitly extended input-assembly contract before
 Architect execution, with provenance/trust separate from unchanged user intent.

@@ -67,7 +67,7 @@ Platform basit bir sohbet arayüzü değildir; temel ilkeleri şunlardır:
 | **Frontend** | React 19, Vite 8, TypeScript (`strict`), Tailwind CSS v4 | M2A'da kuruldu | Hızlı geliştirme döngüsü, güçlü tip güvenliği, resmi Vite eklentisiyle sade CSS yapılandırması |
 | **Frontend Veri & Durum** | TanStack Query, React Router, HTTP Polling | M4A/M4B-1 sorgu, önbellek ve URL sayfalama entegrasyonu kuruldu; 2 sn çalışma polling M6'da eklenecek | Sunucu durumu önbellekleme, URL sayfa senkronizasyonu ve 2 sn aralıklı polling için ek altyapı gerektirmez |
 | **Backend** | Python 3.12, FastAPI, Pydantic v2, `uv` | M2A'da kuruldu | Async I/O uyumu, katı veri şeması doğrulaması, hızlı ve kilit dosyalı (`uv.lock`) bağımlılık yönetimi |
-| **Veritabanı** | SQLite (MVP) → PostgreSQL (Gelecek), SQLAlchemy 2.0 Async + Alembic | M3A bağlantı temeli ve M3B ilk 4 ORM modeli + Alembic göç sistemi kuruldu; değerlendirme tabloları M7'de eklenecek | Yerel MVP'de sıfır kurulum yükü; lehçeden bağımsız tiplerle PostgreSQL'e doğrudan taşınabilirlik |
+| **Veritabanı** | SQLite (MVP) → PostgreSQL (Gelecek), SQLAlchemy Async + Alembic | M5E-2 ile beş ORM tablosu ve sürümlü Evaluation JSON şeması hazır; workflow yazma servisleri henüz etkin değil | Yerel MVP'de sıfır kurulum yükü; PostgreSQL uyumlu tipler ve kısmi indeks tanımları |
 | **LLM Katmanı** | Sağlayıcıdan bağımsız `LLMProvider` protokolü + `FakeLLMProvider` + 1 gerçek sağlayıcı | Planlandı (M5) | Ağır orkestrasyon çerçeveleri olmadan deterministik test edilebilirlik ve model esnekliği |
 | **Kalite & CI** | Ruff, mypy (`strict`), pytest, ESLint, Vitest, GitHub Actions | M2A'da kuruldu | Her değişiklikte otomatik statik analiz ve birim testi güvencesi |
 
@@ -110,7 +110,7 @@ flowchart TD
         REPO["SQLAlchemy Async Repositories (M3C-1 PromptRequestRepository Uygulandi)"]
     end
 
-    DB[("SQLite - MVP (M3A Baglanti + M3B Ilk 4 Tablo ve Alembic Uygulandi)")]
+    DB[("SQLite - MVP (M5E-2: 5 ORM Tablosu ve Alembic Semasi)")]
     PG[("PostgreSQL (Post-MVP)")]
     EXT["Harici LLM API"]
 
@@ -367,20 +367,24 @@ stateDiagram-v2
 
 ---
 
-## 8. Veritabanı Şeması ve Göç Mimarisi (Milestone 3B – 8.6)
+## 8. Veritabanı Şeması ve Göç Mimarisi (M5E-2)
 
-Asenkron bağlantı ve oturum altyapısı (`app/db/session.py`) M3A'da, `DeclarativeBase` (`app/db/base.py`), Alembic göç sistemi (`alembic.ini`, `migrations/`, revizyon `0001_initial_schema`) ve ilk dört temel tablo ise **Milestone 3B'de uygulanmıştır**:
+Asenkron bağlantı ve oturum altyapısı M3A'da, ilk dört ORM tablosu ve `0001_initial_schema` M3B'de uygulanmıştır. M5E-2, `0002_workflow_persistence` ile yalnızca şema ve saf Pydantic saklama projeksiyonlarını ekler:
 
-- **Uygulanan tablolar (Milestone 3B):** `prompt_requests`, `workflow_runs`, `prompt_versions`, `agent_runs`
-- **Planlanan değerlendirme tabloları (Milestone 7):** `evaluations`, `criterion_scores`, `evaluation_issues` (henüz oluşturulmamıştır)
+- **Mevcut temel tablolar:** `prompt_requests`, `workflow_runs`, `prompt_versions`, `agent_runs`.
+- **Yeni uygulanan tablo:** `evaluations`; tam Critic değerlendirmesi ve kapılar açık sürümlü JSON içinde tutulur. Önceki `criterion_scores` / `evaluation_issues` alt tablo önerisi bu MVP için geçersizdir.
+- **Henüz uygulanmayan:** Workflow repository/servisleri, optimizer kalıcılık bağlantısı, recovery ve yeni uç noktalar. Mevcut PromptRequest API ve bellek içi optimizer değişmedi. Geliştirme veritabanına göç uygulanmadı.
+- Alanların, sürümlerin, ertelenen çapraz kayıt doğrulamalarının ve SQLite çalışma zamanı önkoşullarının ayrıntıları: [M5E-2 şema sözleşmesi](workflow-persistence-schema.md).
 
-### 8.1 Göç (Migration) ve Bütünlük Kuralları (Milestone 3B — Uygulandı)
+### 8.1 Göç (Migration) ve Bütünlük Kuralları
 
 - **Alembic ve `DATABASE_URL` entegrasyonu:** `migrations/env.py`, `Settings().database_url` ve `create_db_engine()` altyapısını yeniden kullanır; `create_all()` kullanılmaz ve FastAPI başlangıcında otomatik göç çalıştırılmaz. Göçler `alembic.ini` (`%(here)s`) ve `build_alembic_config()` sayesinde çalışma dizininden (CWD) bağımsız olarak `uv run alembic upgrade head` ve `uv run alembic downgrade -1` / `base` komutlarıyla yürütülür.
 - **Döngüsel yabancı anahtar çözümü (`WorkflowRun.final_version_id` ↔ `PromptVersion.id`):** `workflow_runs` ilk oluşturulduğunda `final_version_id` sütunu FK olmadan tanımlanır; `prompt_versions` tablosu oluşturulduktan sonra `op.batch_alter_table("workflow_runs")` (`use_alter=True`, `post_update=True`) ile `fk_workflow_runs_final_version_id_prompt_versions` (`ON DELETE SET NULL`) kısıtı eklenir. Geri alma (`downgrade`) sırasında `PRAGMA foreign_keys=ON` küresel olarak devre dışı bırakılmaz; önce `final_version_id` değerleri `NULL` yapılır, PostgreSQL gibi katalog tabanlı lehçelerde döngüsel FK düşürülür ve tablolar bağımlılık sırasıyla kaldırılır.
 - **Tarihsel kayıtların korunması ve kısıtlar:** Üretim ve yürütme geçmişinin yanlışlıkla silinmemesi için ebeveyn-çocuk ilişkilerinde `ON DELETE RESTRICT` uygulanır (`CASCADE` kullanılmaz). Üç değerlendirme turu sınırı (`max_evaluation_rounds BETWEEN 1 AND 3`, `evaluation_round BETWEEN 1 AND 3`) ve sürüm tekilliği (`UNIQUE(prompt_request_id, version_number)`, `UNIQUE(agent_run_id)`) veritabanı düzeyinde zorunlu tutulur.
+- **M5E-2 SQLite göçü:** Dolu ve döngüsel başvurulu tabloların batch yeniden kurulumu için yalnızca özel göç bağlantısında, işlem dışında FK denetimi geçici kapatılır. Açık `BEGIN IMMEDIATE`, DDL ve Alembic damgasını tek işlemde tutar; commit öncesi `foreign_key_check` çalışır ve bağlantının ilk FK ayarı her durumda geri yüklenir. Uygulamanın bağlantı ayarları değişmez. Dolu yeni alanlar veya Evaluation geçmişi varsa 0001'e downgrade veri silmek yerine reddedilir.
+- **M5E-2 sahiplik ve yaşam döngüsü:** Evaluation'ın PromptVersion ve Critic AgentRun bağlantıları bileşik FK ile aynı workflow'a bağlanır. Dört etkin durumda (`PENDING`, `GENERATING`, `EVALUATING`, `REVISING`) istek başına tek workflow kısmi benzersiz indeksle korunur; terminal `CLARIFICATION_REQUIRED` yeni koşuya engel olmaz. Seçim, baseline sırası ve diğer çapraz kayıt kuralları M5E-3 servis işlemlerine ayrılmıştır.
 
-### 8.2 Hedef Varlık-İlişki Diyagramı (M3B Uygulanan + M7 Planlanan)
+### 8.2 Uygulanan Varlık-İlişki Diyagramı (M5E-2)
 
 ```mermaid
 erDiagram
@@ -392,8 +396,7 @@ erDiagram
     WORKFLOW_RUNS }o--o| PROMPT_VERSIONS : selects_final
     PROMPT_VERSIONS ||--o{ EVALUATIONS : evaluated_by
     PROMPT_VERSIONS |o--o{ PROMPT_VERSIONS : parent_of
-    EVALUATIONS ||--|{ CRITERION_SCORES : contains
-    EVALUATIONS ||--o{ EVALUATION_ISSUES : lists
+    EVALUATIONS |o--o{ AGENT_RUNS : revision_baseline
     AGENT_RUNS ||--o| PROMPT_VERSIONS : creates
     AGENT_RUNS ||--o| EVALUATIONS : creates
 
@@ -417,6 +420,13 @@ erDiagram
         int current_round
         int completed_rounds
         json config_snapshot
+        json request_snapshot "preferences/source identity only"
+        string request_content_digest
+        int state_revision "default 0"
+        uuid execution_token
+        datetime lease_expires_at
+        string client_idempotency_key_digest
+        json terminal_details
         uuid final_version_id FK
         decimal final_score
         bool qualified
@@ -449,37 +459,22 @@ erDiagram
         uuid id PK
         uuid prompt_version_id FK
         uuid workflow_run_id FK
-        uuid agent_run_id FK
+        uuid critic_agent_run_id FK
         int evaluation_round "CHECK 1..3"
+        string input_fingerprint
         string evaluated_target_mode
+        string evaluated_renderer_name
         string evaluated_renderer_version
         string rubric_version
-        decimal total_score
-        string grade
+        string scoring_version
+        string assessment_schema_version
+        json assessment "nine criteria and issues"
+        string quality_status
+        decimal total_score "nullable"
         bool passed
         json gate_results
-        text summary
+        datetime completed_at
         datetime created_at
-    }
-    CRITERION_SCORES {
-        uuid id PK
-        uuid evaluation_id FK
-        string criterion
-        int score
-        int weight
-        decimal weighted_score
-        text rationale
-    }
-    EVALUATION_ISSUES {
-        uuid id PK
-        uuid evaluation_id FK
-        string issue_key
-        string severity
-        string criterion
-        text description
-        text evidence
-        text recommendation
-        int priority
     }
     AGENT_RUNS {
         uuid id PK
@@ -488,13 +483,22 @@ erDiagram
         string agent_version
         string instruction_version
         string operation
+        string operation_key
+        string revision_attempt_key
+        uuid baseline_evaluation_id FK
+        string result_kind
+        string error_code
+        json binding_data
+        json result_data
+        string feedback_projection_digest
+        json call_metadata
         int evaluation_round
-        string provider
-        string model
+        string provider "nullable configured identity"
+        string model "nullable configured identity"
         json parameters
         string status
-        int attempt_count
-        bool repair_attempted
+        int attempt_count "nullable when unknown"
+        bool repair_attempted "nullable when unknown"
         int input_tokens
         int output_tokens
         int latency_ms

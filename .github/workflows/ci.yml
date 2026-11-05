@@ -23,23 +23,28 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
-      - name: Set up Python 3.12
-        run: uv python install 3.12
+      - name: Install uv-managed Python 3.12.16
+        run: uv python install --managed-python 3.12.16
 
       - name: Install dependencies
-        run: uv sync --frozen --python 3.12
+        run: |
+          ci_python="$(uv python find --managed-python --no-python-downloads --system 3.12.16)"
+          uv sync --frozen --managed-python --no-python-downloads --python "$ci_python"
+
+      - name: Verify Python and connected SQLite runtimes
+        run: .venv/bin/python -m app.db.verify_ci_runtime
 
       - name: Run Ruff linter
-        run: uv run ruff check .
+        run: .venv/bin/python -m ruff check .
 
       - name: Check Ruff formatting
-        run: uv run ruff format --check .
+        run: .venv/bin/python -m ruff format --check .
 
       - name: Run mypy strict type check
-        run: uv run mypy app tests benchmarks
+        run: .venv/bin/python -m mypy app tests migrations benchmarks
 
       - name: Run pytest suite
-        run: uv run pytest
+        run: .venv/bin/python -m pytest
 
   frontend:
     name: Frontend (Node 24 · TypeScript · ESLint · Vitest · Build)
@@ -74,7 +79,7 @@ jobs:
         run: npm run build
 
   e2e:
-    name: E2E (Chromium � isolated FastAPI + SQLite)
+    name: E2E (Chromium · isolated FastAPI + SQLite)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -90,9 +95,17 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
+      - name: Install uv-managed Python 3.12.16
+        working-directory: backend
+        run: uv python install --managed-python 3.12.16
       - name: Prepare Python backend environment
         working-directory: backend
-        run: uv sync --frozen --python 3.12
+        run: |
+          ci_python="$(uv python find --managed-python --no-python-downloads --system 3.12.16)"
+          uv sync --frozen --managed-python --no-python-downloads --python "$ci_python"
+      - name: Verify Python and connected SQLite runtimes
+        working-directory: backend
+        run: .venv/bin/python -m app.db.verify_ci_runtime
       - run: npm ci
       - name: Install Chromium and Linux system dependencies
         run: npx playwright install --with-deps chromium

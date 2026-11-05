@@ -49,6 +49,57 @@ stops early or at a configurable maximum of 1–3 evaluations, and retains compl
 history after a later execution failure. It runs in the caller's task with an optional
 overall deadline. No background runner, API activation or persistence is introduced.
 
+M5E-2 adds the [persistence schema and versioned storage contracts](../docs/workflow-persistence-schema.md):
+one Evaluation table, durable workflow/operation identity fields, terminal clarification,
+and database uniqueness guards. Migration head is `0002_workflow_persistence`.
+M5E-3B below adds opt-in WorkflowRun/AgentRun repositories/services; optimizer database hooks remain future work.
+Source text stays in PromptRequest; per-run snapshots store preferences/references
+and a separate content digest. New migration tests use only isolated temporary DBs.
+Review the migration/runtime prerequisites before any separately approved DB upgrade.
+
+M5E-3A adds an opt-in [SQLite runtime gate and short write transaction boundary](../docs/sqlite-write-transactions.md).
+It uses explicit BEGIN IMMEDIATE, FULL synchronous mode and service-owned commit/
+rollback on a dedicated engine. Existing API sessions and migrations are unchanged;
+the current SQLite 3.45.3 is refused for new concurrent WAL workflow writes. Isolated
+DELETE-journal tests run without installing or replacing a runtime. Workflow execution
+and database hooks remain disabled; runtime qualification requires separate approval.
+
+M5E-3B adds internal [WorkflowRun/AgentRun persistence services](../docs/workflow-persistence-services.md):
+source-bound creation, explicit idempotency, conditional claims and fenced operation
+reservation/completion. Tests use the approved private Python 3.12.16 / SQLite 3.53.1
+environment on temporary migrated WAL/FULL databases. Use the private interpreter
+commands in that document for the full suite; new WAL service tests refuse the older
+SQLite 3.45.3 environment. No runner, public API or optimizer activation is introduced.
+
+M5E-3C adds internal [atomic evaluation persistence and workflow finalization](../docs/atomic-evaluation-persistence.md):
+one transaction promotes a staged candidate, stores its independent Critic Evaluation,
+completes the Critic and updates progress/best selection. Explicit fenced finalization
+retains completed history on failure or clarification. Exact committed results can
+be reconciled without replaying a model call. Optimizer/API activation remains deferred.
+
+M5E-4 adds [explicit persistent optimizer execution](../docs/persistent-optimizer-execution.md):
+`execute_persisted_optimizer()` claims a selected stored workflow and adapts the existing
+M5D loop to durable reservations, agent results, Evaluation commits and finalization.
+Stored configuration is authoritative; lease renewal occurs only between operations.
+This internal caller-task path is opt-in. Existing APIs/startup remain unchanged;
+background execution, recovery and public readback remain deferred to later work.
+
+M5E-5 adds internal [durable readback and safe recovery assessment](../docs/workflow-readback-recovery.md):
+independent read-only snapshots reconstruct history, expose typed integrity findings
+and reconcile exact committed identities. Recovery diagnostics distinguish live/expired
+leases, unresolved operations and durable facts without changing workflows or calling
+providers. There is no automatic resume, takeover, worker or public readback endpoint.
+
+## CI runtime qualification
+
+Backend and E2E CI explicitly install uv-managed Python **3.12.16**, resolve that
+managed interpreter for frozen dependency sync, and run through `backend/.venv`.
+Before tests, `python -m app.db.verify_ci_runtime` checks the exact Python version,
+logs `SELECT sqlite_version()` from separate sqlite3/aiosqlite in-memory connections,
+and requires both to pass the existing WAL safety policy. Unsafe/unverified libraries
+fail the job; Linux is not assumed to match Windows SQLite 3.53.1. The preflight does
+not open application databases or change journals, drivers or the local default runtime.
+
 ## Mevcut durum (Milestone 2A, 3A, 3B, 3C-1 & 3C-2 — Uygulandı)
 
 - `GET /api/v1/health` uç noktası ve otomatik OpenAPI dokümantasyonu (`/docs`, `/redoc`, `/api/v1/openapi.json`)
@@ -60,7 +111,7 @@ overall deadline. No background runner, API activation or persistence is introdu
 - Yapılandırılmış UTC JSON loglama (`app/core/logging.py`), sunucu taraflı `X-Request-ID` izleme ve HTTP gövde boyutu sınırı ara katmanları (`app/api/middleware.py`) ile merkezi RFC 9457 Problem Details hata yönetimi (`app/core/errors.py`, `app/api/error_handlers.py`)
 - pytest, Ruff ve `mypy --strict` doğrulama altyapısı
 
-> **Not:** İş akışı çalıştırma uç noktaları ve `evaluations` / `criterion_scores` / `evaluation_issues` tabloları henüz uygulanmamıştır. Üretim rolü M5B'de `PromptArchitectAgent` olarak; bağımsız `PromptCriticAgent` ve deterministik `ScoringEngine` M5C-2'de bellek içi bileşenler olarak uygulanmıştır. Mevcut API bunları otomatik çağırmaz. Sözleşmeler, rubric 2.0.0 ve sınırlar: [Critic tasarımı](../docs/prompt-critic.md).
+> **Not:** M5E-2'de `evaluations` şeması uygulandı; eski `criterion_scores` / `evaluation_issues` önerisi sürümlü JSON ile değiştirildi. M5E-3B iç WorkflowRun/AgentRun servislerini ekler; workflow uç noktaları ve optimizer bağlantısı henüz etkin değildir. Architect/Critic/ScoringEngine mevcut API tarafından otomatik çağrılmaz. Şema sınırları ve geçiş güvenliği: [M5E-2](../docs/workflow-persistence-schema.md).
 
 ---
 
@@ -289,19 +340,18 @@ Merkezi hata yakalayıcılar (`app/api/error_handlers.py`) tüm HTTP hataların�
 
 ## Mevcut Sınırlamalar ve Gelecek Genişleme Noktaları
 
-### Mevcut Sınırlamalar (Milestone 3C-2 Sonu İtibarıyla)
+### Mevcut Sınırlamalar (M5E-2)
 
 - İstek hız sınırlama (rate limiting), dağıtık izleme (OpenTelemetry/Sentry) ve kullanıcı kimlik doğrulama ilk MVP M3C-2 kapsamı dışındadır (`ADR-008`).
 - Kayıt silme veya geçmiş prompt isteklerini düzenleme uç noktaları bu aşamada kapsam dışıdır.
-- Değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues`) henüz oluşturulmamıştır (Milestone 7 kapsamında eklenecektir).
-- LLMGateway, sağlayıcılar, Architect, CanonicalPrompt/GenericPromptRenderer ve bağımsız Critic/ScoringEngine uygulanmıştır; otomatik revizyon döngüsü ve ajan sonuçlarının kalıcılığı planlanmaktadır. Ayrı yetkilendirme olmadan gerçek model çağrıları/testleri çalıştırılmaz.
+- Tek `evaluations` tablosu ve sürümlü JSON sözleşmesi uygulanmıştır. İç WorkflowRun/AgentRun servisleri M5E-3B'de, atomik PromptVersion/Evaluation yazımı, normal bitiş ve seçim M5E-3C'de hazırdır; genel API bağlantısı etkin değildir.
+- LLMGateway, sağlayıcılar, Architect, bağımsız Critic/ScoringEngine ve sınırlı bellek içi optimizer uygulanmıştır. M5E-4 kalıcı optimizer yürütmesini açıkça çağrılan iç yol olarak ekler; mevcut istekler otomatik model çağrısı veya workflow başlatmaz. Ayrı yetkilendirme olmadan gerçek model çağrıları/testleri çalıştırılmaz.
 
 ### Gelecek Genişleme Noktaları
 
-- **Milestone 4 (Planlandı):** Frontend yönlendirme, API istemcisi (`X-Request-ID` ve Problem Details uyumlu), TanStack Query ve prompt gönderim formu.
 - **Sonraki entegrasyon:** Mevcut LLMGateway ve ajanların workflow/AgentRun kalıcılığına bağlanması ve iş akışı başlatma uç noktaları (`workflow_run_id` ve `agent_name` log alanlarının aktif kullanımıyla).
-- **Milestone 7 (Planlandı):** Yeni bir Alembic revizyonu ile `evaluations`, `criterion_scores` ve `evaluation_issues` tablolarının eklenmesi.
-- **Post-MVP PostgreSQL Geçişi:** Lehçeden bağımsız şema ve `env.py` yapısı sayesinde `postgresql+asyncpg://...` bağlantı dizesiyle doğrudan PostgreSQL üzerinde göç çalıştırabilme.
+- **M5E-3 önkoşulu:** Yamalanmış SQLite çalışma zamanını doğrulamak; açık transaction-BEGIN ve WAL dayanıklılık politikasını seçmek. Bu pakette Python/driver, runtime oturumları ve geliştirme DB PRAGMA ayarları değiştirilmedi.
+- **Post-MVP PostgreSQL Geçişi:** Tipler ve kısmi indeks DDL'i PostgreSQL için derlenir; gerçek PostgreSQL sunucusunda göç testi henüz yapılmadı.
 
 ---
 
@@ -315,9 +365,11 @@ cd backend
 uv sync --python 3.12                                 # .venv oluşturur ve bağımlılıkları kurar
 uv run alembic upgrade head                           # yerel veritabanı şemasını oluşturur/günceller
 uv run uvicorn app.main:app --reload                  # http://127.0.0.1:8000
-uv run pytest -q                                      # tüm backend testleri (M2A + M3A + M3B + M3C-1 + M3C-2)
+uv run pytest -q                                      # tüm backend testleri
 uv run pytest tests/test_database.py -q               # yalnızca M3A veritabanı bağlantı testleri
 uv run pytest tests/test_migrations.py -q             # yalnızca M3B ORM ve Alembic göç testleri
+uv run pytest tests/test_workflow_persistence_schema.py tests/test_persistence_contracts.py -q # M5E-2
+uv run pytest tests/test_write_transactions.py -q     # M5E-3A isolated transactions/runtime policy
 uv run pytest tests/test_prompt_repository.py -q      # yalnızca M3C-1 depo ve servis testleri
 uv run pytest tests/test_prompt_requests_api.py -q    # yalnızca M3C-1 REST API entegrasyon testleri
 uv run pytest tests/test_logging.py -q                # yalnızca M3C-2 yapılandırılmış loglama ve maskeleme testleri
@@ -325,5 +377,5 @@ uv run pytest tests/test_middleware.py -q             # yalnızca M3C-2 X-Reques
 uv run pytest tests/test_error_handlers.py -q         # yalnızca M3C-2 Problem Details ve OpenAPI hata şeması testleri
 uv run ruff check .                                   # lint kontrolü
 uv run ruff format --check .                          # format kontrolü
-uv run mypy app tests migrations                      # strict tip kontrolü
+uv run mypy app tests migrations benchmarks           # strict tip kontrolü
 ```

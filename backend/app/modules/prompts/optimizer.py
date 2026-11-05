@@ -47,6 +47,7 @@ from app.modules.prompts.optimizer_contracts import (
     TerminationReason,
     failure_reason,
 )
+from app.modules.prompts.optimizer_execution import OptimizationExecution
 from app.modules.prompts.revision_integration import make_revision_input
 from app.modules.prompts.schemas import PromptRequestCreate, PromptRequestRead
 
@@ -229,11 +230,16 @@ async def _execute(
     context: ArchitectRunContext,
     spans: tuple[ProtectedSourceSpan, ...],
     request_id: str | None,
+    execution: OptimizationExecution | None,
 ) -> OptimizationOutcome:
     author = _ArchitectDispatch(architect, run, source, spans)
     judge = _CriticDispatch(critic, run)
-    initial = await run_architect_critic_pass(
-        author, judge, source, context=context, request_id=request_id
+    initial = (
+        await run_architect_critic_pass(
+            author, judge, source, context=context, request_id=request_id
+        )
+        if execution is None
+        else await execution.initial(author, judge, source, context, request_id)
     )
     run.check_deadline()
     if isinstance(initial, ClarificationRequired):
@@ -244,6 +250,8 @@ async def _execute(
     completed = EvaluationRound(round_number=1, evaluated=initial)
     history = EvaluationHistory(rounds=(completed,))
     run.check_deadline()
+    if execution is not None:
+        history = await execution.publish(history)
     run.history = history  # Publish only after the whole append validates within budget.
     attempted: tuple[str, ...] = ()
     while True:
@@ -273,9 +281,14 @@ async def _execute(
             raise LLMError(LLMErrorCode.INVALID_REQUEST)
         run.check_deadline()
         attempted = (*attempted, key)  # Record before dispatch; never replay the run on failure.
-        result = await author.revise(payload, request_id=request_id)
+        if execution is None:
+            result = await author.revise(payload, request_id=request_id)
+        else:
+            payload, result = await execution.revise(author, payload, request_id)
         run.operation = "validation"
         revised = _revision(result, payload)
+        if execution is not None:
+            await execution.stage_revision(revised)
         run.operation = "progress"
         candidate_progress = check_candidate_progress(history, revised)
         if candidate_progress.action == "stop":
@@ -294,8 +307,10 @@ async def _execute(
             or candidate_progress.next_round_number != len(history.rounds) + 1
         ):
             raise LLMError(LLMErrorCode.INVALID_STRUCTURED_OUTPUT)
-        evaluation = await judge.evaluate(
-            make_critic_input(revised.candidate), request_id=request_id
+        evaluation = (
+            await judge.evaluate(make_critic_input(revised.candidate), request_id=request_id)
+            if execution is None
+            else await execution.evaluate(judge, revised.candidate, request_id)
         )
         run.operation = "validation"
         evaluated = EvaluatedCandidate.model_validate(
@@ -309,6 +324,8 @@ async def _execute(
         )
         history = EvaluationHistory(rounds=(*history.rounds, completed))
         run.check_deadline()
+        if execution is not None:
+            history = await execution.publish(history)
         run.history = history
 
 
@@ -322,6 +339,7 @@ async def optimize_prompt(
     context: ArchitectRunContext | None = None,
     request_id: str | None = None,
     timeout_seconds: float | None = None,
+    execution: OptimizationExecution | None = None,
 ) -> OptimizationOutcome:
     """Run once in the current task; invalid limits/deadlines raise safe INVALID_REQUEST.
 
@@ -351,7 +369,9 @@ async def optimize_prompt(
     try:
         async with timer:
             source, binding, spans = _inputs(prompt_request, context, protected_spans)
-            result = await _execute(run, architect, critic, source, binding, spans, request_id)
+            result = await _execute(
+                run, architect, critic, source, binding, spans, request_id, execution
+            )
             run.check_deadline()
             return result
     except LLMError as exc:
