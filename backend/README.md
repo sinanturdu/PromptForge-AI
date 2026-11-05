@@ -30,6 +30,11 @@ Architect output to existing request/run identities and distinguishes candidates
 from clarification. It documents future persistence/transaction rules; current
 prompt-request APIs and database behavior remain unchanged.
 
+The [M5C-4 single-pass boundary](../docs/architect-critic-pass.md) connects Architect,
+blind Critic and deterministic scoring in memory. Clarification stops immediately;
+evaluated candidates retain separate content, findings and execution metadata.
+No public API activation, workflow loop or persistence is introduced.
+
 ## Mevcut durum (Milestone 2A, 3A, 3B, 3C-1 & 3C-2 — Uygulandı)
 
 - `GET /api/v1/health` uç noktası ve otomatik OpenAPI dokümantasyonu (`/docs`, `/redoc`, `/api/v1/openapi.json`)

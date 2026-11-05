@@ -1,6 +1,5 @@
 """One blind, database-free evaluation using an injected gateway."""
 
-import hashlib
 import json
 from contextlib import suppress
 from typing import Final
@@ -17,7 +16,7 @@ from app.agents.critic_schemas import (
 from app.llm.errors import LLMError, LLMErrorCode
 from app.llm.gateway import LLMGateway
 from app.llm.schemas import CallMetadata, LLMMessage, LLMRequest, ModelSettings
-from app.modules.prompts.architect_integration import CriticInput
+from app.modules.prompts.architect_integration import CriticInput, critic_input_fingerprint
 from app.modules.prompts.canonical import MAX_CANONICAL_CHARS, MAX_CANONICAL_ITEMS
 from app.modules.prompts.rendering import GenericPromptRenderer
 from app.scoring.rubric import CRITERIA, RUBRIC_VERSION
@@ -55,7 +54,8 @@ def _evidence_matches(evidence: EvidenceRef, payload: CriticInput) -> bool:
     return isinstance(source, str) and evidence.quote in source
 
 
-def _validate_evidence(output: CriticOutput, payload: CriticInput) -> None:
+def validate_critic_evidence(output: CriticOutput, payload: CriticInput) -> None:
+    """Check attribution on revalidated models; no semantic approval or repair call."""
     evidence = [ref for key, _, _ in CRITERIA for ref in getattr(output.criteria, key).evidence]
     evidence.extend(ref for issue in output.issues for ref in issue.evidence)
     if not all(_evidence_matches(ref, payload) for ref in evidence):
@@ -98,14 +98,10 @@ class PromptCriticAgent:
                 output = CriticOutput.model_validate(generated.value.model_dump(warnings=False))
         if output is None or not isinstance(generated.metadata, CallMetadata):
             raise LLMError(LLMErrorCode.INVALID_STRUCTURED_OUTPUT)
-        _validate_evidence(output, snapshot)
+        validate_critic_evidence(output, snapshot)
         # Fingerprint binds the local request snapshot, exact candidate and renderer.
         # It is neither authentication nor a safe diagnostic identifier.
-        fingerprint = hashlib.sha256(
-            json.dumps(
-                snapshot.model_dump(mode="json"), sort_keys=True, ensure_ascii=False
-            ).encode()
-        ).hexdigest()
+        fingerprint = critic_input_fingerprint(snapshot)
         result = None
         with suppress(ValidationError):
             result = CriticResult(

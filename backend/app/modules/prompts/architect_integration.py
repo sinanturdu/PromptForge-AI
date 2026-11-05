@@ -1,5 +1,7 @@
 """In-memory request/run binding and validated Architect handoffs, without persistence."""
 
+import hashlib
+import json
 from contextlib import suppress
 from typing import Literal, Self
 from uuid import UUID
@@ -155,6 +157,19 @@ class CriticInput(LLMModel):
     target_mode: TargetMode
     renderer_name: str
     renderer_version: str
+
+
+def critic_input_fingerprint(payload: CriticInput) -> str:
+    """Bind an already validated snapshot; not authentication or a log identifier.
+
+    Preserve the M5C-2 algorithm exactly, including existing identity/timestamp,
+    preferences, exact rendered text and target/renderer identity.
+    """
+    return hashlib.sha256(
+        json.dumps(payload.model_dump(mode="json"), sort_keys=True, ensure_ascii=False).encode(
+            "utf-8"
+        )
+    ).hexdigest()
 
 
 async def create_architect_handoff(

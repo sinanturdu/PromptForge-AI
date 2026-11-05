@@ -188,3 +188,8 @@ M5C-3 extends the same Critic fixture to 36 bilingual scenarios with 43 scripted
 software probes. `uv run python -m benchmarks.prompt_critic --report` exercises
 the existing agent/scorer and keeps all semantic verdicts pending. See the
 [adversarial benchmark and controlled-calibration procedure](critic-benchmark.md).
+
+M5C-4's [single-pass integration](architect-critic-pass.md) connects the existing
+Architect handoff, blind Critic and scorer without API activation or persistence.
+The unchanged fingerprint algorithm and evidence validator are shared with that
+boundary; supplied outcomes are deeply revalidated before downstream consumption.

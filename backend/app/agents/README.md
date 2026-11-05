@@ -118,3 +118,8 @@ and gates in Python using Decimal. Agent/instruction/scoring versions are 1.0.0.
 Neither component performs persistence or activates an API/workflow. Fake tests
 establish contracts and arithmetic, not real-model judgment quality. See
 [contracts, uncertainty, evidence and benchmark mapping](../../../docs/prompt-critic.md).
+
+M5C-4 adds the optional [single-pass coordinator](../../../docs/architect-critic-pass.md),
+which reuses these agents and the existing handoff. It binds exact candidate/input
+identity before deterministic scoring; clarification never reaches the Critic.
+Agent contracts, independent instructions and borrowed-resource ownership are unchanged.
