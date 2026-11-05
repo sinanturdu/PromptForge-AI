@@ -16,7 +16,7 @@
 
 ## Mevcut Uygulama Durumu (Milestone 4B-2 — Tamamlandı)
 
-> **Önemli Not:** Bu depo şu anda **Milestone 2A (Temel Altyapı)**, **Milestone 3A (Asenkron Veritabanı Bağlantı Temeli)**, **Milestone 3B (İlk Dört ORM Modeli & Alembic Göç Sistemi)**, **Milestone 3C (Prompt Yönetimi REST API, Yapılandırılmış Loglama, `X-Request-ID` ve RFC 9457 Problem Details)**, **Milestone 4A (İşlevsel Prompt Gönderim Arayüzü & Backend Entegrasyonu)**, **Milestone 4B-1 (Prompt Geçmişi, Sunucu Taraflı Sayfalama ve Gezinme)** ve **Milestone 4B-2 (Sunucu Taraflı Prompt Araması, Hedef Yapay Zekâ Filtreleme ve URL Durum Yönetimi)** aşamalarını tamamlamıştır. Değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues` — Milestone 7), LLM sağlayıcı entegrasyonu, AI ajanları (`PromptEngineerAgent`, `PromptCriticAgent`), `CanonicalPrompt` derleyicileri, token analizi ve sesli girdi (Speech-to-Text) özellikleri **henüz uygulanmamıştır**.
+> **Güncel Durum (M5C-2):** Temel API/veritabanı, M4 frontend/E2E, M5A LLM katmanı ve M5B Outcome-First Prompt Architect uygulanmıştır. M5C-2 bağımsız PromptCriticAgent ve deterministik ScoringEngine ekler. Ajanlar bellek içi bileşenlerdir; mevcut prompt-request API davranışı değişmez. Workflow, değerlendirme tabloları/kalıcılık, hedefe özgü renderer'lar, REA, token analizi ve sesli girdi planlanmaktadır. Rubric 2.0.0, offline testler ve sınırlar için [Critic dokümanına](docs/prompt-critic.md) bakınız.
 
 **Şu anda çalışan bileşenler:**
 
@@ -38,7 +38,7 @@
 | **Frontend** | React 19, Vite 8, TypeScript (`strict`), Tailwind CSS v4 (`@tailwindcss/vite`), React Router, TanStack Query, ESLint, Vitest, MSW |
 | **Backend** | Python 3.12, FastAPI, Pydantic v2, `pydantic-settings`, Uvicorn, `uv`, Ruff, mypy, pytest |
 | **Veritabanı** | SQLite + `aiosqlite` + SQLAlchemy 2.0 Async + Alembic (M3A bağlantı temeli ve M3B ilk 4 ORM modeli + Alembic göç sistemi kuruldu, PostgreSQL uyumlu) |
-| **AI Katmanı (Planlanan — M5+)** | Sağlayıcıdan bağımsız `LLMProvider` katmanı, `FakeLLMProvider` ve yapılandırılabilir model/ajan ayrımı |
+| **AI Katmanı (M5A–M5C-2)** | LLMProvider/LLMGateway, fake/OpenAI sağlayıcıları, PromptArchitectAgent, GenericPromptRenderer, bağımsız PromptCriticAgent ve deterministik ScoringEngine; API/workflow aktivasyonu planlandı |
 
 ---
 
@@ -230,9 +230,9 @@ npm run build
 | **Milestone 4A** | React Router, TanStack Query, Problem Details uyumlu API istemcisi, Türkçe prompt gönderim formu ve detay sayfası | Tamamlandı |
 | **Milestone 4B-1** | Kaydedilen prompt istekleri için sunucu taraflı sayfalamalı geçmiş arayüzü (`/history`), URL `?page=` durumu ve gezinme | Tamamlandı |
 | **Milestone 4B-2** | Prompt geçmişi için sunucu taraflı anahtar kelime araması (`q`), hedef yapay zekâ filtreleme (`target_mode`) ve URL durum senkronizasyonu | **Tamamlandı** |
-| **Milestone 5** | Sağlayıcıdan bağımsız LLM katmanı, `FakeLLMProvider` ve ilk sağlayıcı entegrasyonu | Planlandı |
-| **Milestone 6** | `PromptEngineerAgent`, `CanonicalPrompt` ara temsili ve `GenericPromptRenderer` | Planlandı |
-| **Milestone 7** | Bağımsız `PromptCriticAgent` ve deterministik puanlama motoru | Planlandı |
+| **Milestone 5** | Sağlayıcıdan bağımsız LLM katmanı, `FakeLLMProvider` ve ilk sağlayıcı entegrasyonu | M5A'da uygulandı |
+| **Milestone 6** | `PromptArchitectAgent.create`, sparse `CanonicalPrompt` ve `GenericPromptRenderer` | M5B'de uygulandı; revise/workflow planlandı |
+| **Milestone 7** | Bağımsız `PromptCriticAgent` ve deterministik puanlama motoru, rubric 2.0.0 | M5C-2'de bellek içi uygulandı; değerlendirme kalıcılığı planlandı |
 | **Milestone 8** | En fazla 3 değerlendirme turlu otomatik revizyon iş akışı | Planlandı |
 | **Milestone 8.5** | Hedefe özgü derleyiciler (`openai`, `anthropic`, `google`), hedef seçici ve hedef farkındalıklı değerlendirme | Planlandı |
 | **Milestone 8.6** | Prompt detay seviyesi, yanıt detayı, akıl yürütme tercihleri ve görev bazlı politikalar | Planlandı |

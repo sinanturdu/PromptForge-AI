@@ -1,6 +1,6 @@
 # PromptForge AI — Teknik Mimari Dokümantasyonu (v1.2)
 
-> **Uygulama Durumu Bildirimi (Milestone 4B-2):** Bu doküman, PromptForge AI platformunun onaylanmış hedef mimarisini ve aşamalı yol haritasını tanımlar. Şu anki depoda **Milestone 2A temel altyapısı**, **Milestone 3A asenkron veritabanı bağlantı temeli**, **Milestone 3B ilk dört ORM modeli ile Alembic göç sistemi** (`0001_initial_schema`), **Milestone 3C-1 Prompt Yönetimi REST API**, **Milestone 3C-2 yapılandırılmış JSON loglama, `X-Request-ID`, HTTP gövde boyutu sınırı ve RFC 9457 Problem Details hata yönetimi**, **Milestone 4A işlevsel Türkçe prompt gönderim arayüzü, Problem Details uyumlu API istemcisi ve UUID tabanlı detay sayfası** ve **Milestone 4B-1 sunucu taraflı sayfalamalı prompt geçmişi arayüzü (`/history`), URL `?page=` durum yönetimi ve mobil uyumlu üst gezinme çubuğu** uygulanmıştır. **Milestone 4B-2** kapsamında sunucu taraflı anahtar kelime araması (`q`), hedef AI ailesi filtreleme (`target_mode`) ve URL durum eşgüdümü de uygulanmıştır. Değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues` — Milestone 7), LLM sağlayıcı entegrasyonu, AI ajanları, `CanonicalPrompt` derleyicisi, değerlendirme motoru, token analizi ve sesli girdi (Speech-to-Text) bileşenleri **henüz kodlanmamıştır**.
+> **Uygulama Durumu Bildirimi (M5C-2):** Temel API/veritabanı ve M4 frontend/E2E altyapısına ek olarak M5A LLMGateway/sağlayıcılar, M5B PromptArchitectAgent, sparse CanonicalPrompt/GenericPromptRenderer, 36 vakalık offline benchmark ve bellek içi entegrasyon sınırı uygulanmıştır. M5C-2 bağımsız PromptCriticAgent ve deterministik ScoringEngine ekler. Ajanlar mevcut API'lerde etkinleştirilmez ve sonuçları kaydedilmez. Workflow, değerlendirme tabloları, hedefe özgü renderer'lar, REA, token analizi ve sesli girdi halen planlanmaktadır. Aşağıdaki eski milestone numaraları hedef yol haritasını anlatır; güncel Critic sözleşmesi için [M5C-2 dokümanına](prompt-critic.md) bakınız.
 
 ---
 
@@ -93,15 +93,15 @@ flowchart TD
         SVC["Uygulama Servisleri (M3C-1 PromptRequestService Uygulandi)"]
         RUNNER["InProcessTaskRunner (Planlandi: M6)"]
         WF["RevisionWorkflow - Maks 3 Degerlendirme Turu (Planlandi: M6-M8)"]
-        COMP["Prompt Compiler ve Hedef Renderers (Planlandi: M6 ve M8.5)"]
-        SCORE["Deterministik ScoringEngine (Planlandi: M7)"]
+        COMP["GenericPromptRenderer (M5B); Hedef Renderers Planlandi"]
+        SCORE["Deterministik ScoringEngine (M5C-2 Uygulandi)"]
 
-        subgraph AGENTS["Ajan Katmani (Planlandi: M6-M7)"]
-            PE["PromptEngineerAgent (create, revise)"]
+        subgraph AGENTS["Ajan Katmani (M5B/M5C-2; workflow entegrasyonu planlandi)"]
+            PE["PromptArchitectAgent (create; revise planlandi)"]
             PC["PromptCriticAgent (evaluate)"]
         end
 
-        subgraph LLMLAYER["LLM Katmani (Planlandi: M5)"]
+        subgraph LLMLAYER["LLM Katmani (M5A Uygulandi)"]
             GW["LLMGateway (timeout, retry, structured output)"]
             PROV1["Gercek LLM Saglayici Adaptoru"]
             FAKE["FakeLLMProvider (deterministik testler)"]
@@ -232,10 +232,10 @@ Yazılım geliştirme görev türlerine göre yapılandırılabilir varsayılan 
 
 ### 7.1 Ajan Sorumlulukları
 
-- **`PromptEngineerAgent`:** Ham isteği, bağlamı, hedef modu ve optimizasyon tercihlerini analiz eder; belirsizlikleri ve varsayımları çıkarır; `create` modunda ilk `CanonicalPrompt`'u, `revise` modunda ise Critic bulgularına yanıt veren iyileştirilmiş sürümü üretir.
-- **`PromptCriticAgent`:** Orijinal kullanıcı isteği ile derlenmiş aday promptu sabit değerlendirme ölçeğine (rubric v1) göre **kör** olarak (Engineer'ın iç gerekçelerini ve önceki toplam puanları görmeden) değerlendirir; kriter puanlarını, kanıtlı sorunları (`critical`, `major`, `minor`) ve yapılandırılmış revizyon önerilerini üretir.
+- **`PromptArchitectAgent` (önceki plan adı `PromptEngineerAgent`):** M5B'de `create` için preserve/rewrite/clarify ve sparse canonical çıktı uygulandı. Critic bulgularına dayalı `revise` ve workflow entegrasyonu halen planlanmaktadır.
+- **`PromptCriticAgent`:** M5C-2'de orijinal istek ve kesin derlenmiş aday rubric 2.0.0 ile **kör** değerlendirilir. Yapılandırılmış kriter puanları/null, desteklenen veya belirsiz sorunlar, kanıtlar ve uygulanabilir öneriler döner; toplam ve onay Python ScoringEngine sorumluluğundadır. Kalıcı değerlendirme ve workflow planlanmaktadır.
 
-### 7.2 Değerlendirme Kuralları (Rubric v1)
+### 7.2 Değerlendirme Kuralları (Production rubric 2.0.0 — M5C-2)
 
 Toplam puan LLM tarafından değil, `ScoringEngine` tarafından deterministik olarak hesaplanır:
 
@@ -243,8 +243,9 @@ $$
 \text{total\_score} = \sum_{i=1}^{9} \frac{s_i}{10} \times w_i \qquad (s_i \in [0, 10],\ \sum w_i = 100)
 $$
 
-- **Kriter ağırlıkları:** `intent_fidelity` (20), `clarity` (15), `completeness` (15), `structure` (10), `context_and_role` (10), `constraints_and_scope` (10), `output_format` (10), `specificity` (5), `consistency` (5).
+- **Kriter ağırlıkları:** `intent_fidelity` (25), `clarity` (10), `completeness` (15), `structure` (5), `context_and_role` (5), `constraints_and_scope` (20), `output_format` (5), `specificity` (10), `consistency` (5).
 - **Kalite kapıları (`passed = true` koşulları):** `total_score >= 85`, `critical` sorun sayısı `0` ve `intent_fidelity >= 7`.
+- Dokuz kriterden biri değerlendirilemiyorsa toplam null, durum `unassessable` ve `passed=false` olur; ağırlıklar yeniden normalize edilmez. Kanıt atfı yerel doğrulanır, desteklenmeyen kesinlik kaldırılır. Önceki rubric v1 ağırlıkları M5C-2'de değiştirilmiştir; ayrıntılar ve sekiz insan değerlendirme kriteriyle ilişki [ADR-010](adr/ADR-010-independent-critic-and-deterministic-scoring.md) ve [Critic dokümanında](prompt-critic.md) açıklanır. Puanlar gerçek dünya başarısının kanıtı değildir.
 
 ### 7.3 Kesin Değerlendirme Turu Tanımı (`evaluation_round` 1..3)
 
@@ -573,9 +574,9 @@ flowchart LR
 | **M4A** | React Router, TanStack Query, Problem Details uyumlu API istemcisi, Türkçe prompt gönderim formu ve UUID tabanlı detay sayfası | **Tamamlandı** |
 | **M4B-1** | Kaydedilen prompt istekleri için sunucu taraflı sayfalamalı geçmiş arayüzü (`/history`), URL `?page=` durumu ve üst gezinme çubuğu | **Tamamlandı** |
 | **M4B-2** | Sunucu taraflı anahtar kelime araması, hedef AI ailesi filtreleme ve URL durum eşgüdümü | **Tamamlandı** |
-| **M5** | `LLMProvider` protokolü, `LLMGateway`, `FakeLLMProvider` ve ilk gerçek LLM sağlayıcı adaptörü | Planlandı |
-| **M6** | `PromptEngineerAgent`, `CanonicalPrompt` ara temsili ve `GenericPromptRenderer` | Planlandı |
-| **M7** | Bağımsız `PromptCriticAgent`, rubric v1 ve deterministik `ScoringEngine` | Planlandı |
+| **M5** | `LLMProvider` protokolü, `LLMGateway`, `FakeLLMProvider` ve ilk gerçek LLM sağlayıcı adaptörü | M5A'da uygulandı |
+| **M6** | `PromptArchitectAgent.create`, sparse `CanonicalPrompt` ve `GenericPromptRenderer` | M5B'de uygulandı; revise/workflow planlandı |
+| **M7** | Bağımsız `PromptCriticAgent`, rubric 2.0.0 ve deterministik `ScoringEngine` | M5C-2'de bellek içi uygulandı; değerlendirme tabloları/kalıcılık planlandı |
 | **M8** | En fazla 3 değerlendirme turlu otomatik `RevisionWorkflow` ve en iyi sürüm seçimi | Planlandı |
 | **M8.5** | `OpenAIPromptRenderer`, `AnthropicPromptRenderer`, `GeminiPromptRenderer`, hedef AI seçici ve hedef farkındalıklı değerlendirme | Planlandı (MVP Zorunlu) |
 | **M8.6** | `prompt_detail_level`, `response_detail_preference`, `reasoning_preference` üst verisi ve görev bazlı temel optimizasyon politikaları | Planlandı (MVP Zorunlu) |

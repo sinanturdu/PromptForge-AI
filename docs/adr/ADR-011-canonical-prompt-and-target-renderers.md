@@ -1,6 +1,6 @@
 # ADR-011: CanonicalPrompt Ara Temsili ve Hedefe Özgü Prompt Derleyicileri
 
-- **Durum:** Onaylandı (M5B-2: sparse CanonicalPrompt ve GenericPromptRenderer uygulandı; hedefe özgü renderer'lar ve Critic entegrasyonu planlandı)
+- **Durum:** Onaylandı (M5B-2: sparse CanonicalPrompt ve GenericPromptRenderer; M5C-2: bellek içi bağımsız Critic uygulandı. Hedef renderer'ları, workflow ve kalıcılık planlandı.)
 
 ## Bağlam
 
@@ -20,9 +20,11 @@ M5B-2'de Architect `preserve`, `rewrite` veya `clarify` kararı verir. `preserve
 orijinal `raw_prompt` metnini aynen döndürür. `rewrite` seyrek canonical içeriği
 deterministik olarak derler; açıklamalar ve değişiklikler nihai prompta eklenmez.
 `clarify` yalnızca sadık bir sonuç üretmeyi engelleyen belirsizlikler için soru döndürür.
-Tüm hedefler şimdilik aynı `GenericPromptRenderer` sürümünü kullanır. Critic ve
-hedefe özgü renderer'lar uygulanana kadar bağımsız kalite onayı iddia edilmez;
-yukarıdaki değerlendirme bütünlüğü kuralları sonraki entegrasyonlar için korunur.
+Tüm hedefler şimdilik aynı `GenericPromptRenderer` sürümünü kullanır. M5C-2 Critic
+yalnızca açıkça çağrıldığında kesin derlenmiş metni kör değerlendirir; Architect
+çıktısı tek başına bağımsız onay değildir. Rubric kapısını geçmek gerçek dünya
+başarısının kanıtı değildir. Hedef renderer'ları ve kalıcı workflow entegrasyonu
+planlanmaktadır; yukarıdaki değerlendirme bütünlüğü kuralları korunur.
 Veritabanındaki `engineer_create` / `engineer_revise` kaynak değerleri değiştirilmez.
 
 - İçerik üretimi ile sözdizimsel derleme temiz biçimde ayrılır; her renderer bağımsız birim testleriyle doğrulanabilir ve değerlendirme izlenebilirliği korunur.

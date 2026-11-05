@@ -1,4 +1,4 @@
-# Prompt Architect (M5B-2)
+# Prompt agents (Architect M5B, Critic M5C-2)
 
 `PromptArchitectAgent` implements the generation role previously named
 `PromptEngineerAgent` in the architecture plans. It is an in-memory component, not
@@ -55,7 +55,8 @@ text, code indentation, quotes and surrounding whitespace remain intact. Each it
 must contain complete copy-ready wording, particularly negative prohibitions.
 All target modes currently use this renderer; target preferences are passed to the
 Architect without selecting a different execution provider or inventing formatting.
-No output is claimed to have independent Critic approval.
+Architect output alone is not independent approval. The optional M5C-2 Critic path
+evaluates the exact rendered text separately; it is not automatically invoked.
 
 ## Instruction and input boundaries
 
@@ -106,3 +107,14 @@ M5B-4 adds the opt-in `create_architect_handoff()` function for existing request
 and caller-owned run references, plus a blind Critic-input data projection. It
 validates candidate/clarification semantics without changing this agent contract or
 performing persistence. See the [integration and future transaction mapping](../../../docs/architect-service-integration.md).
+
+## Independent Critic (M5C-2)
+
+`PromptCriticAgent(gateway, model_settings).evaluate(critic_input, request_id=...)`
+consumes the unchanged blind projection from `make_critic_input()`. It validates
+exact evidence attribution and returns separate content/execution metadata through
+one gateway operation. `ScoringEngine.score(result)` applies rubric 2.0.0 weights
+and gates in Python using Decimal. Agent/instruction/scoring versions are 1.0.0.
+Neither component performs persistence or activates an API/workflow. Fake tests
+establish contracts and arithmetic, not real-model judgment quality. See
+[contracts, uncertainty, evidence and benchmark mapping](../../../docs/prompt-critic.md).
