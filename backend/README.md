@@ -20,6 +20,11 @@ through a sparse canonical model and deterministic renderer, or returns focused
 clarification questions. No public AI endpoint or automatic generation is activated.
 See [the agent contract, instruction version and offline tests](app/agents/README.md).
 
+The [M5B-3 prompt benchmark](benchmarks/README.md) adds 36 shared Turkish/English
+reference cases and an offline, content-free reporting command:
+`uv run python -m benchmarks.prompt_architect --report`. Objective contract findings
+remain separate from pending human quality review; no real-model calls are made.
+
 ## Mevcut durum (Milestone 2A, 3A, 3B, 3C-1 & 3C-2 — Uygulandı)
 
 - `GET /api/v1/health` uç noktası ve otomatik OpenAPI dokümantasyonu (`/docs`, `/redoc`, `/api/v1/openapi.json`)

@@ -96,3 +96,8 @@ These deterministic tests establish contract behavior, not real-model semantic
 quality. Faithfulness, material improvement, question relevance and absence of
 invented content still require evaluation against actual model outputs in separately
 authorized work. No such calls or charges are needed by these tests.
+
+M5B-3 extends the same fixture file with 36 human-reviewable reference cases. The
+original nine authored outputs are explicitly marked `contract_example`; they
+remain software fixtures, not unique quality reference answers. See the
+[offline benchmark, rubric and future evaluation strategy](../../benchmarks/README.md).

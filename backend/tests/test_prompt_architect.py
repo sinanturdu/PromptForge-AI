@@ -5,10 +5,10 @@ import io
 import json
 import traceback
 import warnings
-from pathlib import Path
 from typing import Any
 
 import pytest
+from benchmarks.architect_cases import BenchmarkCase, load_dataset
 from pydantic import BaseModel
 
 from app.agents.architect_instructions import INSTRUCTION_VERSION, SYSTEM_INSTRUCTION
@@ -31,9 +31,7 @@ from app.models.enums import PromptDetailLevel, TargetMode
 from app.modules.prompts.canonical import CanonicalPrompt
 from app.modules.prompts.schemas import PromptRequestCreate
 
-CASES: list[dict[str, Any]] = json.loads(
-    (Path(__file__).parent / "fixtures" / "architect_cases.json").read_text(encoding="utf-8")
-)
+CASES = tuple(case for case in load_dataset().cases if case.contract_example is not None)
 PRIVATE = "SENSITIVE_PROMPT_SENTINEL"
 SECRET = "synthetic-credential-sentinel"
 
@@ -86,19 +84,14 @@ def anyio_backend() -> str:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("case", CASES, ids=[case["name"] for case in CASES])
+@pytest.mark.parametrize("case", CASES, ids=[case.name for case in CASES])
 @pytest.mark.parametrize("level", list(PromptDetailLevel))
-async def test_representative_contract_cases(
-    case: dict[str, Any], level: PromptDetailLevel
-) -> None:
-    payload = PromptRequestCreate(**case["payload"], prompt_detail_level=level)
+async def test_representative_contract_cases(case: BenchmarkCase, level: PromptDetailLevel) -> None:
+    payload = case.payload.model_copy(update={"prompt_detail_level": level}, deep=True)
     before = payload.model_dump()
-    text = wire(
-        case["decision"],
-        canonical_prompt=(canonical(**case["canonical"]) if "canonical" in case else None),
-        changes=case.get("changes", []),
-        questions=case.get("questions", []),
-    )
+    example = case.contract_example
+    assert example is not None
+    text = example.output.model_dump_json()
     provider = RecordingFake([scripted(text)])
     gateway = RecordingGateway(provider)
     agent = PromptArchitectAgent(gateway, ModelSettings(model="fake-v1"))
@@ -107,7 +100,7 @@ async def test_representative_contract_cases(
     finally:
         await provider.aclose()
     assert gateway.operations == provider.calls == 1
-    assert result.decision == case["decision"]
+    assert result.decision == example.output.decision
     assert result.instruction_version == INSTRUCTION_VERSION
     assert result.metadata.request_id == "request-fixture"
     assert payload.model_dump() == before
@@ -121,15 +114,15 @@ async def test_representative_contract_cases(
         assert result.changes == result.questions == ()
     elif result.decision == "rewrite":
         assert result.rendered_prompt is not None and result.questions == ()
-        for required in case.get("required", []):
+        for required in example.required_fragments:
             assert required in result.rendered_prompt
-        for forbidden in case.get("forbidden", []):
+        for forbidden in example.forbidden_fragments:
             assert forbidden not in result.rendered_prompt
-        assert result.changes == tuple(case["changes"])
+        assert result.changes == example.output.changes
         assert not any(note in result.rendered_prompt for note in result.changes)
     else:
         assert result.rendered_prompt is None and result.canonical_prompt is None
-        assert result.questions == tuple(case["questions"])
+        assert result.questions == example.output.questions
         assert result.changes == () and result.renderer_name is None
 
 

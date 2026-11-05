@@ -100,3 +100,6 @@ frontend/playwright-report/
 frontend/test-results/
 frontend/blob-report/
 frontend/.playwright/
+
+# ---------- Offline benchmark reports ----------
+backend/benchmark-reports/
