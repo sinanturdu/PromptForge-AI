@@ -35,6 +35,20 @@ blind Critic and deterministic scoring in memory. Clarification stops immediatel
 evaluated candidates retain separate content, findings and execution metadata.
 No public API activation, workflow loop or persistence is introduced.
 
+M5D-2 adds [feedback-driven Architect revision](../docs/architect-revision.md):
+one explicit operation from a bound evaluated baseline, supported feedback and
+caller-declared protected source spans.
+
+M5D-3 adds [completed evaluation history and pure selection/progress policies](../docs/optimization-policies.md):
+one to three validated rounds, ADR-007 ranking with explicit nullable scores,
+exact candidate duplicate guards and per-run revision-attempt keys.
+
+M5D-4 adds the opt-in [bounded in-memory optimizer](../docs/prompt-optimizer.md):
+`optimize_prompt()` reuses the initial pass, revises from the best evaluated baseline,
+stops early or at a configurable maximum of 1–3 evaluations, and retains completed
+history after a later execution failure. It runs in the caller's task with an optional
+overall deadline. No background runner, API activation or persistence is introduced.
+
 ## Mevcut durum (Milestone 2A, 3A, 3B, 3C-1 & 3C-2 — Uygulandı)
 
 - `GET /api/v1/health` uç noktası ve otomatik OpenAPI dokümantasyonu (`/docs`, `/redoc`, `/api/v1/openapi.json`)

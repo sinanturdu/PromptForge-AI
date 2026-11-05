@@ -125,12 +125,13 @@ dependency failures and persisted diagnostics content-free.
 
 ## Future M5D and persistence
 
-M5D can call this boundary for initial creation, then own evaluation rounds, stop
-conditions, clarification handling and best-version selection under ADR-003/007.
-Architect revise() and revision orchestration are not implemented. Do not simulate
-revision by repeatedly calling initial create(), or treat transport repair as a round.
-The three-round cap, stable rubric snapshot and best-version rules remain future
-controller responsibilities. Qualification alone never allocates a final version.
+[M5D-4's opt-in in-memory optimizer](prompt-optimizer.md) now calls this boundary
+once for initial creation, then owns bounded rounds, stop conditions, clarification
+and best-candidate selection under ADR-003/007. It uses the separate
+[M5D-2 revision boundary](architect-revision.md); it does not simulate revision by
+repeating create() or treat transport repair as a round. The single-pass contract
+itself remains unchanged. Persistence and background execution are still future
+responsibilities. Qualification alone never allocates a final version.
 
 | Future record | Intended mapping |
 | --- | --- |

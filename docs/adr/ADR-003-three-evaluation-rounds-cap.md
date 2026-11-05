@@ -21,3 +21,19 @@ Kod tabanında ve veritabanında `iteration` yerine yalnızca `evaluation_round`
 - Bir çalıştırmada en fazla 3 prompt sürümü ve 3 değerlendirme oluşur; maliyet ve süre öngörülebilir kalır.
 - Milestone 3B'de `workflow_runs` (`max_evaluation_rounds BETWEEN 1 AND 3`, `current_round` ve `completed_rounds` aralık kısıtları), `prompt_versions` (`evaluation_round IS NULL OR evaluation_round BETWEEN 1 AND 3`) ve `agent_runs` (`evaluation_round IS NULL OR evaluation_round BETWEEN 1 AND 3`) tablolarında bu sınır veritabanı düzeyinde aktif hale getirilmiştir; `evaluations` tablosundaki karşılığı Milestone 7'de eklenecektir.
 
+## Amendment — M5D-3: completed evaluations versus dispatches
+
+The new in-memory `EvaluationHistory` contains only one to three successfully
+completed, validated evaluations, consecutively numbered from 1. A generated
+candidate, clarification, failed/cancelled dispatch or gateway retry is not a
+completed evaluation and cannot fill a history entry. Before the first completion
+there is no history. Revision ancestry points to an earlier completed baseline.
+
+This distinction does not authorize extra model calls after a failure. The future
+executor must separately bound/record actual dispatch attempts and deadlines, stop
+after at most three completed evaluations, and obey ADR-005 failure/interruption
+handling. Selection/progress helpers dispatch nothing, persist no counters and do
+not implement the workflow. Clarification has no completed candidate/version.
+See [M5D-3 contracts](../optimization-policies.md) for the current implementation
+and remaining transaction/lifecycle work.
+

@@ -231,7 +231,7 @@ npm run build
 | **Milestone 4B-1** | Kaydedilen prompt istekleri için sunucu taraflı sayfalamalı geçmiş arayüzü (`/history`), URL `?page=` durumu ve gezinme | Tamamlandı |
 | **Milestone 4B-2** | Prompt geçmişi için sunucu taraflı anahtar kelime araması (`q`), hedef yapay zekâ filtreleme (`target_mode`) ve URL durum senkronizasyonu | **Tamamlandı** |
 | **Milestone 5** | Sağlayıcıdan bağımsız LLM katmanı, `FakeLLMProvider` ve ilk sağlayıcı entegrasyonu | M5A'da uygulandı |
-| **Milestone 6** | `PromptArchitectAgent.create`, sparse `CanonicalPrompt` ve `GenericPromptRenderer` | M5B'de uygulandı; revise/workflow planlandı |
+| **Milestone 6** | `PromptArchitectAgent.create/revise`, sparse `CanonicalPrompt` ve `GenericPromptRenderer` | M5B/M5D-2'de uygulandı; seçim/workflow planlandı |
 | **Milestone 7** | Bağımsız `PromptCriticAgent` ve deterministik puanlama motoru, rubric 2.0.0 | M5C-2'de bellek içi uygulandı; değerlendirme kalıcılığı planlandı |
 | **Milestone 8** | En fazla 3 değerlendirme turlu otomatik revizyon iş akışı | Planlandı |
 | **Milestone 8.5** | Hedefe özgü derleyiciler (`openai`, `anthropic`, `google`), hedef seçici ve hedef farkındalıklı değerlendirme | Planlandı |

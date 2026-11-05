@@ -8,7 +8,7 @@ from pydantic import ConfigDict, Field, ValidationError, ValidationInfo, model_v
 
 from app.agents.critic_schemas import CriticResult
 from app.agents.prompt_architect import PromptArchitectAgent
-from app.agents.prompt_critic import PromptCriticAgent, validate_critic_evidence
+from app.agents.prompt_critic import PromptCriticAgent
 from app.llm.errors import LLMError, LLMErrorCode
 from app.llm.schemas import LLMModel
 from app.modules.prompts.architect_integration import (
@@ -16,9 +16,9 @@ from app.modules.prompts.architect_integration import (
     CandidateReady,
     ClarificationRequired,
     create_architect_handoff,
-    critic_input_fingerprint,
     make_critic_input,
 )
+from app.modules.prompts.critic_validation import validate_candidate_evaluation
 from app.modules.prompts.schemas import PromptRequestRead
 from app.scoring.engine import SCORING_VERSION, ScoringEngine
 from app.scoring.schemas import ScoringResult
@@ -60,15 +60,7 @@ class EvaluatedCandidate(LLMModel):
 
         candidate = revalidate(CandidateReady, values["candidate"])
         critic = revalidate(CriticResult, values["critic"])
-        critic_input = make_critic_input(candidate)
-        if (
-            critic.evaluated_target_mode != critic_input.target_mode
-            or critic.evaluated_renderer_name != critic_input.renderer_name
-            or critic.evaluated_renderer_version != critic_input.renderer_version
-            or critic.input_fingerprint != critic_input_fingerprint(critic_input)
-        ):
-            raise ValueError("Critic evaluation does not match the candidate input.")
-        validate_critic_evidence(critic.output, critic_input)
+        validate_candidate_evaluation(candidate, critic)
         supplied = revalidate(ScoringResult, values["scoring"]) if "scoring" in values else None
         calculated = ScoringEngine.score(critic)
         if not isinstance(calculated, ScoringResult):

@@ -10,7 +10,6 @@ from app.agents.critic_instructions import INSTRUCTION_VERSION, SYSTEM_INSTRUCTI
 from app.agents.critic_schemas import (
     CriticOutput,
     CriticResult,
-    EvidenceRef,
     resolve_unassessable,
 )
 from app.llm.errors import LLMError, LLMErrorCode
@@ -18,8 +17,11 @@ from app.llm.gateway import LLMGateway
 from app.llm.schemas import CallMetadata, LLMMessage, LLMRequest, ModelSettings
 from app.modules.prompts.architect_integration import CriticInput, critic_input_fingerprint
 from app.modules.prompts.canonical import MAX_CANONICAL_CHARS, MAX_CANONICAL_ITEMS
+from app.modules.prompts.critic_validation import (
+    validate_critic_evidence as validate_critic_evidence,
+)
 from app.modules.prompts.rendering import GenericPromptRenderer
-from app.scoring.rubric import CRITERIA, RUBRIC_VERSION
+from app.scoring.rubric import RUBRIC_VERSION
 
 AGENT_VERSION: Final = "1.0.0"
 # Canonical content plus a conservative allowance for renderer joining separators.
@@ -42,25 +44,6 @@ def _snapshot(payload: CriticInput) -> CriticInput:
     ):
         raise LLMError(LLMErrorCode.INVALID_REQUEST)
     return snapshot
-
-
-def _evidence_matches(evidence: EvidenceRef, payload: CriticInput) -> bool:
-    # Source is a validated Literal whitelist, never an arbitrary path/URL to fetch.
-    source = (
-        payload.rendered_prompt
-        if evidence.source == "rendered_prompt"
-        else getattr(payload.original_request, evidence.source)
-    )
-    return isinstance(source, str) and evidence.quote in source
-
-
-def validate_critic_evidence(output: CriticOutput, payload: CriticInput) -> None:
-    """Check attribution on revalidated models; no semantic approval or repair call."""
-    evidence = [ref for key, _, _ in CRITERIA for ref in getattr(output.criteria, key).evidence]
-    evidence.extend(ref for issue in output.issues for ref in issue.evidence)
-    if not all(_evidence_matches(ref, payload) for ref in evidence):
-        # No repair operation: attribution needs this input, not more invented evidence.
-        raise LLMError(LLMErrorCode.INVALID_STRUCTURED_OUTPUT)
 
 
 class PromptCriticAgent:
