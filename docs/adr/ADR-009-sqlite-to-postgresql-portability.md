@@ -52,3 +52,15 @@ transaction/lock/cleanup behavior without unsafe WAL stress. Existing API/startu
 migration behavior and the development database are unchanged. No runtime or driver
 was installed. [Lifecycle, qualification proposal and limits](../sqlite-write-transactions.md).
 
+## Amendment — M5E-3B: fenced internal persistence services
+
+WorkflowRun/AgentRun services now use the dedicated write boundary for short creation,
+claim, reservation and result transactions. Repositories never commit. Conditional
+updates fence on ownership, token, lease, phase and revision; explicit identity/data
+comparisons handle idempotent reads without repeating operations. Completed Evaluation
+insertion/progress/selection remain M5E-3C work. No optimizer or public API is activated.
+Tests use the approved private Python 3.12.16 / connected SQLite 3.53.1 runtime and
+migrated temporary WAL/FULL/FK databases; no global/default runtime or development DB
+was changed. PostgreSQL service concurrency remains unverified.
+[Service methods, lifecycle and limits](../workflow-persistence-services.md).
+

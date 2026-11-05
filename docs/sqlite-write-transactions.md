@@ -3,8 +3,10 @@
 ## Implemented boundary and ownership
 
 `backend/app/db/write_transactions.py` provides an opt-in `create_write_engine(url)`
-and `write_transaction(engine)` context. Neither is wired into FastAPI, the optimizer,
-repositories, a runner or Alembic. No workflow executes and no schema changes here.
+and `write_transaction(engine)` context. M5E-3B's internal
+[persistence services](workflow-persistence-services.md) now use this boundary.
+It is not wired into FastAPI, the optimizer, a runner or Alembic. No workflow executes
+and no schema changes here.
 The existing `DatabaseSessionManager`, PromptRequest services and API responses are
 unchanged. This boundary does not load configuration or default to a database URL.
 The legacy PromptRequestService owns its API commit and must not be called inside
@@ -114,9 +116,14 @@ Bounded test timeouts guard deadlocks; synchronization uses events, not sleeps.
 The full API/optimizer/migration suite and development DB hash/mtime/size/sidecar
 guards remain in place. No real provider calls or alternative SQLite drivers run.
 
-## Patched runtime recommendation — approval required separately
+## Historical M5E-3A qualification proposal
 
-No installed runtime verified here can activate concurrent WAL workflows. No Python,
+M5E-3B now uses the user-approved private Python 3.12.16 environment: actual sqlite3
+and aiosqlite connections report SQLite 3.53.1 and pass this gate. The commands below
+record the earlier qualification proposal; do not reinstall an already qualified
+environment. No global/default Python or dependency lockfile change was made.
+
+At M5E-3A verification, no installed runtime qualified for concurrent WAL workflows. No Python,
 package, lockfile, PATH or registry change has been made. A newer SQLite CLI does
 not replace the SQLite library linked into Python.
 
@@ -208,7 +215,8 @@ events there. Its driver/server integration is not tested here. PostgreSQL claim
 locking and concurrency semantics still need future service design; SQLite's global
 writer reservation must not be treated as portable row locking.
 
-M5E-3B/3C still own repositories, loaded-row ownership checks, conditional claim/state
-updates, operation idempotency, optimizer hooks and durable workflow writes. ADR-005's
+M5E-3B now implements internal repositories, source/provenance checks, conditional
+claims and operation identity/lifecycle. M5E-3C still owns atomic version/Evaluation
+writes and progress/selection; M5E-4 owns optimizer hooks. ADR-005's
 future runner/interrupted-run policy is unchanged. This package adds no execution,
 recovery, endpoints, new tables or migration modifications.

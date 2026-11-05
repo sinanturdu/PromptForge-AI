@@ -52,7 +52,7 @@ overall deadline. No background runner, API activation or persistence is introdu
 M5E-2 adds the [persistence schema and versioned storage contracts](../docs/workflow-persistence-schema.md):
 one Evaluation table, durable workflow/operation identity fields, terminal clarification,
 and database uniqueness guards. Migration head is `0002_workflow_persistence`.
-Workflow repositories/services and optimizer database hooks remain future work.
+M5E-3B below adds opt-in WorkflowRun/AgentRun repositories/services; optimizer database hooks remain future work.
 Source text stays in PromptRequest; per-run snapshots store preferences/references
 and a separate content digest. New migration tests use only isolated temporary DBs.
 Review the migration/runtime prerequisites before any separately approved DB upgrade.
@@ -63,6 +63,13 @@ rollback on a dedicated engine. Existing API sessions and migrations are unchang
 the current SQLite 3.45.3 is refused for new concurrent WAL workflow writes. Isolated
 DELETE-journal tests run without installing or replacing a runtime. Workflow execution
 and database hooks remain disabled; runtime qualification requires separate approval.
+
+M5E-3B adds internal [WorkflowRun/AgentRun persistence services](../docs/workflow-persistence-services.md):
+source-bound creation, explicit idempotency, conditional claims and fenced operation
+reservation/completion. Tests use the approved private Python 3.12.16 / SQLite 3.53.1
+environment on temporary migrated WAL/FULL databases. Use the private interpreter
+commands in that document for the full suite; new WAL service tests refuse the older
+SQLite 3.45.3 environment. No runner, public API or optimizer activation is introduced.
 
 ## Mevcut durum (Milestone 2A, 3A, 3B, 3C-1 & 3C-2 — Uygulandı)
 
@@ -75,7 +82,7 @@ and database hooks remain disabled; runtime qualification requires separate appr
 - Yapılandırılmış UTC JSON loglama (`app/core/logging.py`), sunucu taraflı `X-Request-ID` izleme ve HTTP gövde boyutu sınırı ara katmanları (`app/api/middleware.py`) ile merkezi RFC 9457 Problem Details hata yönetimi (`app/core/errors.py`, `app/api/error_handlers.py`)
 - pytest, Ruff ve `mypy --strict` doğrulama altyapısı
 
-> **Not:** M5E-2'de `evaluations` şeması uygulandı; eski `criterion_scores` / `evaluation_issues` önerisi sürümlü JSON ile değiştirildi. Workflow servisleri ve uç noktaları henüz uygulanmamıştır. Architect/Critic/ScoringEngine bellek içi çalışır; mevcut API bunları otomatik çağırmaz. Şema sınırları ve geçiş güvenliği: [M5E-2](../docs/workflow-persistence-schema.md).
+> **Not:** M5E-2'de `evaluations` şeması uygulandı; eski `criterion_scores` / `evaluation_issues` önerisi sürümlü JSON ile değiştirildi. M5E-3B iç WorkflowRun/AgentRun servislerini ekler; workflow uç noktaları ve optimizer bağlantısı henüz etkin değildir. Architect/Critic/ScoringEngine mevcut API tarafından otomatik çağrılmaz. Şema sınırları ve geçiş güvenliği: [M5E-2](../docs/workflow-persistence-schema.md).
 
 ---
 
@@ -308,7 +315,7 @@ Merkezi hata yakalayıcılar (`app/api/error_handlers.py`) tüm HTTP hataların�
 
 - İstek hız sınırlama (rate limiting), dağıtık izleme (OpenTelemetry/Sentry) ve kullanıcı kimlik doğrulama ilk MVP M3C-2 kapsamı dışındadır (`ADR-008`).
 - Kayıt silme veya geçmiş prompt isteklerini düzenleme uç noktaları bu aşamada kapsam dışıdır.
-- Tek `evaluations` tablosu ve sürümlü değerlendirme JSON sözleşmesi uygulanmıştır; ayrı kriter/sorun tabloları yoktur. Workflow yazma servisleri henüz uygulanmadı.
+- Tek `evaluations` tablosu ve sürümlü JSON sözleşmesi uygulanmıştır. İç WorkflowRun/AgentRun servisleri M5E-3B'de hazırdır; atomik PromptVersion/Evaluation yazımı, normal bitiş ve seçim M5E-3C'ye ayrılmıştır.
 - LLMGateway, sağlayıcılar, Architect, bağımsız Critic/ScoringEngine ve sınırlı bellek içi optimizer uygulanmıştır. Ajan sonuçlarının veritabanına yazılması M5E-3'e ayrılmıştır. Ayrı yetkilendirme olmadan gerçek model çağrıları/testleri çalıştırılmaz.
 
 ### Gelecek Genişleme Noktaları

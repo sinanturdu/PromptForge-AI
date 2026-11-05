@@ -136,6 +136,11 @@ the actual validated EvaluatedCandidate and check loaded records transactionally
 
 ## Deferred M5E-3 invariants
 
+M5E-3B's [internal persistence services](workflow-persistence-services.md) now enforce
+source binding, creation/operation idempotency, fenced claims, operation budgets and
+revision provenance. The list below records schema-only limitations; final selection
+and atomic PromptVersion/Evaluation/progress writes remain M5E-3C responsibilities.
+
 Schema alone cannot guarantee:
 
 - PromptVersion's request matches its workflow's original request.
