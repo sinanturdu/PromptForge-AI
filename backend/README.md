@@ -35,6 +35,11 @@ blind Critic and deterministic scoring in memory. Clarification stops immediatel
 evaluated candidates retain separate content, findings and execution metadata.
 No public API activation, workflow loop or persistence is introduced.
 
+M5D-2 adds [feedback-driven Architect revision](../docs/architect-revision.md):
+one explicit operation from a bound evaluated baseline, supported feedback and
+caller-declared protected source spans. Selection, the multi-round optimizer and
+workflow persistence remain unimplemented.
+
 ## Mevcut durum (Milestone 2A, 3A, 3B, 3C-1 & 3C-2 — Uygulandı)
 
 - `GET /api/v1/health` uç noktası ve otomatik OpenAPI dokümantasyonu (`/docs`, `/redoc`, `/api/v1/openapi.json`)

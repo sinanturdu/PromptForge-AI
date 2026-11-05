@@ -2,19 +2,39 @@
 
 import json
 from contextlib import suppress
+from typing import Final
 
 from pydantic import ValidationError
 
 from app.agents.architect_instructions import INSTRUCTION_VERSION, SYSTEM_INSTRUCTION
 from app.agents.architect_schemas import ArchitectOutput, ArchitectResult
+from app.agents.revision_instructions import (
+    INSTRUCTION_VERSION as REVISION_INSTRUCTION_VERSION,
+)
+from app.agents.revision_instructions import REVISION_VERSION
+from app.agents.revision_instructions import SYSTEM_INSTRUCTION as REVISION_INSTRUCTION
+from app.agents.revision_schemas import (
+    RevisedCandidate,
+    RevisionClarification,
+    RevisionInput,
+    RevisionOutput,
+    RevisionResult,
+    UnchangedBaseline,
+    revision_request_data,
+)
 from app.llm.errors import LLMError, LLMErrorCode
 from app.llm.gateway import LLMGateway
-from app.llm.schemas import LLMMessage, LLMRequest, ModelSettings
+from app.llm.schemas import CallMetadata, LLMMessage, LLMRequest, ModelSettings
+from app.modules.prompts.architect_contracts import (
+    CandidateReady,
+    critic_input_fingerprint,
+    make_critic_input,
+)
 from app.modules.prompts.canonical import CanonicalPrompt
 from app.modules.prompts.rendering import GenericPromptRenderer
 from app.modules.prompts.schemas import PromptRequestCreate
 
-AGENT_VERSION = "1.0.0"
+AGENT_VERSION: Final = "1.0.0"
 
 
 class PromptArchitectAgent:
@@ -82,3 +102,96 @@ class PromptArchitectAgent:
             renderer_name=self._renderer.name if rendered is not None else None,
             renderer_version=self._renderer.version if rendered is not None else None,
         )
+
+    async def revise(
+        self, revision_input: RevisionInput, *, request_id: str | None = None
+    ) -> RevisionResult:
+        """One supported revision; no Critic call, score, record, loop or ownership."""
+        snapshot = None
+        if isinstance(revision_input, RevisionInput):
+            with suppress(ValidationError, LLMError):
+                snapshot = RevisionInput.model_validate(revision_input.model_dump(warnings=False))
+        if snapshot is None:
+            raise LLMError(LLMErrorCode.INVALID_REQUEST)
+        request = None
+        with suppress(ValidationError):
+            request = LLMRequest(
+                settings=ModelSettings.model_validate(
+                    self._model_settings.model_dump(warnings=False)
+                ),
+                request_id=request_id,
+                messages=(
+                    LLMMessage(role="system", content=REVISION_INSTRUCTION),
+                    LLMMessage(
+                        role="user",
+                        content=json.dumps(revision_request_data(snapshot), ensure_ascii=False),
+                    ),
+                ),
+            )
+        if request is None:
+            raise LLMError(LLMErrorCode.INVALID_REQUEST)
+        generated = await self._gateway.generate_json(request, RevisionOutput)
+        output = None
+        if isinstance(generated.value, RevisionOutput):
+            with suppress(ValidationError):
+                output = RevisionOutput.model_validate(generated.value.model_dump(warnings=False))
+        if output is None or not isinstance(generated.metadata, CallMetadata):
+            raise LLMError(LLMErrorCode.INVALID_STRUCTURED_OUTPUT)
+        eligible = tuple(finding.issue_key for finding in snapshot.feedback)
+        if not set(output.addressed_issue_keys) <= set(eligible):
+            raise LLMError(LLMErrorCode.INVALID_STRUCTURED_OUTPUT)
+        result: RevisionResult | None = None
+        with suppress(ValidationError):
+            metadata = CallMetadata.model_validate(generated.metadata.model_dump(warnings=False))
+            common = dict(
+                baseline=snapshot.baseline,
+                context=snapshot.context,
+                next_evaluation_round=snapshot.next_evaluation_round,
+                protected_spans=snapshot.protected_spans,
+                baseline_input_fingerprint=critic_input_fingerprint(
+                    make_critic_input(snapshot.baseline)
+                ),
+                eligible_issue_keys=eligible,
+                metadata=metadata,
+                agent_version=AGENT_VERSION,
+                instruction_version=REVISION_INSTRUCTION_VERSION,
+                revision_version=REVISION_VERSION,
+            )
+            if output.decision == "preserve":
+                result = UnchangedBaseline.model_validate(dict(reason="preserve", **common))
+            elif output.decision == "clarify":
+                result = RevisionClarification.model_validate(
+                    dict(questions=output.questions, **common)
+                )
+            else:
+                assert output.canonical_prompt is not None  # Existing wire validator.
+                rendered = self._renderer.render(output.canonical_prompt)
+                if rendered == snapshot.baseline.rendered_prompt:
+                    # Discard claimed progress/changes; retain actual operation telemetry.
+                    result = UnchangedBaseline.model_validate(
+                        dict(reason="identical_rewrite", **common)
+                    )
+                else:
+                    candidate = CandidateReady(
+                        original_request=snapshot.baseline.original_request,
+                        context=snapshot.context,
+                        metadata=metadata,
+                        agent_version=AGENT_VERSION,
+                        instruction_version=REVISION_INSTRUCTION_VERSION,
+                        decision="rewrite",
+                        canonical_prompt=output.canonical_prompt,
+                        rendered_prompt=rendered,
+                        changes=output.changes,
+                        renderer_name=self._renderer.name,
+                        renderer_version=self._renderer.version,
+                    )
+                    result = RevisedCandidate.model_validate(
+                        dict(
+                            candidate=candidate,
+                            addressed_issue_keys=output.addressed_issue_keys,
+                            **common,
+                        )
+                    )
+        if result is None:
+            raise LLMError(LLMErrorCode.INVALID_STRUCTURED_OUTPUT)
+        return result

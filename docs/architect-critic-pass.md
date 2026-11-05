@@ -127,8 +127,9 @@ dependency failures and persisted diagnostics content-free.
 
 M5D can call this boundary for initial creation, then own evaluation rounds, stop
 conditions, clarification handling and best-version selection under ADR-003/007.
-Architect revise() and revision orchestration are not implemented. Do not simulate
-revision by repeatedly calling initial create(), or treat transport repair as a round.
+Architect revise() is available through the [M5D-2 revision boundary](architect-revision.md);
+revision orchestration is not implemented. Do not simulate revision by repeatedly
+calling initial create(), or treat transport repair as a round.
 The three-round cap, stable rubric snapshot and best-version rules remain future
 controller responsibilities. Qualification alone never allocates a final version.
 

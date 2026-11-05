@@ -123,3 +123,12 @@ M5C-4 adds the optional [single-pass coordinator](../../../docs/architect-critic
 which reuses these agents and the existing handoff. It binds exact candidate/input
 identity before deterministic scoring; clarification never reaches the Critic.
 Agent contracts, independent instructions and borrowed-resource ownership are unchanged.
+
+## Supported revision (M5D-2)
+
+`PromptArchitectAgent.revise()` consumes input derived from a completed evaluated
+baseline by `make_revision_input()`. It performs one gateway operation and returns
+a revised candidate, unchanged baseline or clarification. It never evaluates its
+own output or starts another round. See [revision contracts, provenance, protection
+and offline tests](../../../docs/architect-revision.md). Existing creation behavior
+and initial preserve semantics remain unchanged.

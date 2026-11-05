@@ -27,5 +27,11 @@ başarısının kanıtı değildir. Hedef renderer'ları ve kalıcı workflow en
 planlanmaktadır; yukarıdaki değerlendirme bütünlüğü kuralları korunur.
 Veritabanındaki `engineer_create` / `engineer_revise` kaynak değerleri değiştirilmez.
 
+M5D-2 adds a separate [feedback-driven revision operation](../architect-revision.md).
+Revision preserve retains the selected baseline, while initial create preserve
+still retains raw_prompt exactly. A changed revision uses the same sparse canonical
+model/renderer and returns CandidateReady(decision="rewrite") without quality approval.
+Selection, workflow rounds and persistence remain separate future responsibilities.
+
 - İçerik üretimi ile sözdizimsel derleme temiz biçimde ayrılır; her renderer bağımsız birim testleriyle doğrulanabilir ve değerlendirme izlenebilirliği korunur.
 
