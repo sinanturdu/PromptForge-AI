@@ -1,7 +1,7 @@
 """FastAPI application factory and ASGI entry point."""
 
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
@@ -14,26 +14,44 @@ from app.core.config import Settings, get_settings
 from app.core.errors import PROBLEM_JSON_MEDIA_TYPE, ProblemDetails
 from app.core.logging import configure_logging, get_logger
 from app.db.session import DatabaseSessionManager
+from app.llm.composition import create_provider
+from app.llm.gateway import LLMGateway
+from app.llm.schemas import GatewayPolicy
 
 app_logger = get_logger("app")
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-    """Initialize lazy database infrastructure and dispose resources on shutdown."""
+    """Own one provider and database manager, including during partial startup."""
     settings: Settings = application.state.settings
-    db_manager = DatabaseSessionManager(
-        database_url=settings.database_url,
-        connect_timeout=settings.database_connect_timeout,
-        echo=settings.database_echo,
-    )
-    application.state.db_manager = db_manager
-    app_logger.info("Application startup completed")
-    try:
-        yield
-    finally:
-        await db_manager.dispose()
-        app_logger.info("Application shutdown completed")
+    async with AsyncExitStack() as resources:
+        db_manager = DatabaseSessionManager(
+            database_url=settings.database_url,
+            connect_timeout=settings.database_connect_timeout,
+            echo=settings.database_echo,
+        )
+        resources.push_async_callback(db_manager.dispose)
+        provider = create_provider(settings)
+        resources.push_async_callback(provider.aclose)
+        gateway = LLMGateway(
+            provider,
+            provider_name=settings.llm_provider,
+            policy=GatewayPolicy(
+                request_timeout_seconds=settings.llm_request_timeout_seconds,
+                call_deadline_seconds=settings.llm_call_deadline_seconds,
+                max_retries=settings.llm_max_retries,
+                json_repair_attempts=settings.llm_json_repair_attempts,
+            ),
+        )
+        application.state.db_manager = db_manager
+        application.state.llm_gateway = gateway
+        app_logger.info("Application startup completed")
+        try:
+            yield
+        finally:
+            del application.state.llm_gateway
+    app_logger.info("Application shutdown completed")
 
 
 def _build_custom_openapi(application: FastAPI) -> dict[str, Any]:

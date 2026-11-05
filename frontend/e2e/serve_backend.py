@@ -8,6 +8,9 @@ from pathlib import Path
 
 
 def main() -> None:
+    # Override inherited real-provider settings before importing application code.
+    os.environ["LLM_PROVIDER"] = "fake"
+    os.environ.pop("OPENAI_API_KEY", None)
     database = Path(sys.argv[1]).resolve()
     temporary_root = Path(tempfile.gettempdir()).resolve()
     if (
@@ -45,6 +48,7 @@ def main() -> None:
             api_v1_prefix="/api/v1",
             app_name=sys.argv[2],
             database_echo=False,
+            llm_provider="fake",
         )
         get_settings.cache_clear()
         # app.main creates its module-level app through this cached provider too.
