@@ -59,3 +59,12 @@ propagates; unknown in-flight operation/commit outcomes require M5E-5 inspection
 not automatic provider replay or fabricated terminal status. Confirmed prior rounds
 remain durable. See [execution integration](../persistent-optimizer-execution.md).
 
+## Amendment — M5E-5: read-only recovery assessment
+
+Independent internal snapshots now diagnose active/expired claims, unresolved
+operations, committed artifacts and contradictory histories. They do not implement
+the planned startup FAILED/interrupted mutation, a TaskRunner, takeover or replay.
+Database commitment and caller acknowledgment are separate; missing Evaluation or
+expired lease never proves a paid call is safe to repeat. Recovery recommendations
+grant no mutation authority. See [readback and assessment](../workflow-readback-recovery.md).
+

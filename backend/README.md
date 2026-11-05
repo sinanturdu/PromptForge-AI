@@ -84,6 +84,12 @@ Stored configuration is authoritative; lease renewal occurs only between operati
 This internal caller-task path is opt-in. Existing APIs/startup remain unchanged;
 background execution, recovery and public readback remain deferred to later work.
 
+M5E-5 adds internal [durable readback and safe recovery assessment](../docs/workflow-readback-recovery.md):
+independent read-only snapshots reconstruct history, expose typed integrity findings
+and reconcile exact committed identities. Recovery diagnostics distinguish live/expired
+leases, unresolved operations and durable facts without changing workflows or calling
+providers. There is no automatic resume, takeover, worker or public readback endpoint.
+
 ## Mevcut durum (Milestone 2A, 3A, 3B, 3C-1 & 3C-2 — Uygulandı)
 
 - `GET /api/v1/health` uç noktası ve otomatik OpenAPI dokümantasyonu (`/docs`, `/redoc`, `/api/v1/openapi.json`)

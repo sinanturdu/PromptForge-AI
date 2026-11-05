@@ -64,3 +64,13 @@ migrated temporary WAL/FULL/FK databases; no global/default runtime or developme
 was changed. PostgreSQL service concurrency remains unverified.
 [Service methods, lifecycle and limits](../workflow-persistence-services.md).
 
+## Amendment — M5E-5: qualified read-snapshot boundary
+
+Independent readback uses an existing-file, mode=ro SQLite engine with query_only,
+explicit deferred BEGIN, rollback/close and no journal-mode changes. It reuses the
+SQLAlchemy session infrastructure while keeping ordinary API/write engines separate.
+PostgreSQL read composition is explicitly rejected until read-only repeatable-snapshot
+isolation and cleanup/concurrency are tested; changing only the URL is insufficient
+for this new boundary. The portable schema/query direction remains unchanged.
+See [read consistency and remaining limits](../workflow-readback-recovery.md).
+

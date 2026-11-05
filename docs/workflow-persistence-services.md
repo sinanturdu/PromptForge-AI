@@ -10,6 +10,10 @@ Services still dispatch nothing; the adapter runs in the caller's task. Internal
 `execution_snapshot()` supplies bounded stored input/history and `renew_claim()`
 supports explicit live-claim renewal between operations. No public API is activated.
 
+M5E-5 provides separate [readback/recovery-assessment services](workflow-readback-recovery.md)
+using a dedicated read-only snapshot engine. They need no active claim, never use
+these write methods for inspection, and do not implement automatic recovery.
+
 ## Implemented, without execution activation
 
 `WorkflowPersistenceService` uses the M5E-3A dedicated write engine and M5E-2

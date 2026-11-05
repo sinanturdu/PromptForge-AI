@@ -175,3 +175,8 @@ provider ownership change. M5E-5 still owns interrupted-run inspection, durable
 readback beyond this bounded execution input, explicit recovery/resumption policy
 and reconciliation of unknown in-flight operations. PostgreSQL allocator locking,
 deadlock policy and multi-host lease skew remain unqualified as documented in M5E-3C.
+
+M5E-5 now implements independent [durable readback and recovery assessment](workflow-readback-recovery.md),
+including exact read-only committed-identity reconciliation. The earlier deferral
+above is historical: automatic recovery/resumption and unknown external-call replay
+remain intentionally unimplemented. Read diagnostics confer no execution authority.
