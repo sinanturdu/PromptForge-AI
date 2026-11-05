@@ -66,9 +66,11 @@ from app.modules.prompts.workflow_persistence_contracts import (
     OperationParameters,
     OperationReceipt,
     OperationState,
+    PersistedEvaluationReference,
     PersistenceError,
     WorkflowConfiguration,
     WorkflowCreation,
+    WorkflowExecutionSnapshot,
     WorkflowFence,
     WorkflowFinalization,
     WorkflowState,
@@ -461,9 +463,11 @@ class WorkflowPersistenceService:
         fence: WorkflowFence,
         agent_run_id: UUID,
         outcome: ArchitectHandoff | RevisionResult,
+        *,
+        defer_clarification: bool = False,
     ) -> OperationReceipt:
         fence = validated(WorkflowFence, fence)
-        if not isinstance(agent_run_id, UUID):
+        if not isinstance(agent_run_id, UUID) or type(defer_clarification) is not bool:
             raise PersistenceError("invalid")
         async with write_transaction(self._engine) as session:
             workflows, agents = WorkflowRunRepository(session), AgentRunRepository(session)
@@ -523,7 +527,15 @@ class WorkflowPersistenceService:
                     raise PersistenceError("conflict")
             metadata = CallMetadataStorage.from_metadata(value.metadata)
             return await self._finish(
-                workflows, agents, row, agent, fence, binding, result, metadata
+                workflows,
+                agents,
+                row,
+                agent,
+                fence,
+                binding,
+                result,
+                metadata,
+                defer_clarification=defer_clarification,
             )
 
     @_action
@@ -569,6 +581,8 @@ class WorkflowPersistenceService:
         binding: OperationBindingStorage,
         result: OperationResultStorage,
         metadata: CallMetadataStorage | None,
+        *,
+        defer_clarification: bool = False,
     ) -> OperationReceipt:
         data = result.model_dump(mode="json")
         observed = None if metadata is None else metadata.model_dump(mode="json")
@@ -611,7 +625,7 @@ class WorkflowPersistenceService:
                     error_code=code,
                 )
             ).model_dump(mode="json")
-        elif result.kind == "clarification":
+        elif result.kind == "clarification" and not defer_clarification:
             phase = "CLARIFICATION_REQUIRED"
             terminal = TerminalDetailsStorage(
                 schema_version=STORAGE_VERSION,
@@ -621,7 +635,7 @@ class WorkflowPersistenceService:
             ).model_dump(mode="json")
         elif result.kind == "candidate":
             phase = "EVALUATING"
-        elif result.kind != "unchanged":
+        elif result.kind not in {"unchanged", "clarification"}:
             raise PersistenceError("invalid")
         now = self._now()
         if not await workflows.advance(fence, row.status, phase, now, terminal):
@@ -631,6 +645,52 @@ class WorkflowPersistenceService:
         await workflows.refresh(row)
         await agents.refresh(agent)
         return _receipt(row, agent, False)
+
+    @_action
+    async def renew_claim(self, fence: WorkflowFence, *, lease_seconds: int) -> WorkflowState:
+        """Explicit between-operation renewal; never revives an expired owner."""
+        fence = validated(WorkflowFence, fence)
+        if type(lease_seconds) is not int or not 1 <= lease_seconds <= 900:
+            raise PersistenceError("invalid")
+        async with write_transaction(self._engine) as session:
+            workflows = WorkflowRunRepository(session)
+            row, _, _ = await self._owned(workflows, fence)
+            now = self._now()
+            assert row.lease_expires_at is not None
+            expires = max(row.lease_expires_at, now + timedelta(seconds=lease_seconds))
+            if not await workflows.renew(fence, now, expires):
+                raise PersistenceError("conflict")
+            await workflows.refresh(row)
+            return _workflow(row)
+
+    @_action
+    async def execution_snapshot(self, fence: WorkflowFence) -> WorkflowExecutionSnapshot:
+        """Internal claimed input/committed-history read; not permission to dispatch."""
+        fence = validated(WorkflowFence, fence)
+        async with write_transaction(self._engine) as session:
+            workflows, agents = WorkflowRunRepository(session), AgentRunRepository(session)
+            row, source, config = await self._completion_scope(workflows, fence)
+            if (
+                row.state_revision != fence.state_revision
+                or row.completed_rounds != fence.completed_rounds
+            ):
+                raise PersistenceError("conflict")
+            durable = await load_history(workflows, agents, row, source, config)
+            validate_best(row, durable)
+            return WorkflowExecutionSnapshot(
+                workflow=_workflow(row),
+                source=source,
+                configuration=config,
+                history=durable.history,
+                evaluations=tuple(
+                    PersistedEvaluationReference(
+                        evaluation_round=value.evaluation_round,
+                        evaluation_id=value.id,
+                        prompt_version_id=value.prompt_version_id,
+                    )
+                    for value in durable.evaluations
+                ),
+            )
 
     async def _completion_scope(
         self,

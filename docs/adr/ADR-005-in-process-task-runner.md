@@ -49,3 +49,13 @@ after lease expiry with the same historical token; new writes still require a li
 claim and current revision. See [atomic persistence](../atomic-evaluation-persistence.md).
 No TaskRunner, optimizer dispatch, API activation, takeover or recovery is implemented.
 
+## Amendment — M5E-4: explicit caller-task execution
+
+`execute_persisted_optimizer()` now adapts the existing sequential M5D loop to the
+internal persistence services in the caller's task. It does not implement the planned
+TaskRunner or activate automatic API execution. Current-owner lease renewal occurs
+only between operations, without a heartbeat or takeover. External cancellation
+propagates; unknown in-flight operation/commit outcomes require M5E-5 inspection,
+not automatic provider replay or fabricated terminal status. Confirmed prior rounds
+remain durable. See [execution integration](../persistent-optimizer-execution.md).
+

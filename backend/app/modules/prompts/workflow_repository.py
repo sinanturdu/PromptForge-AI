@@ -69,6 +69,29 @@ class WorkflowRunRepository:
         )
         return identity is not None
 
+    async def renew(self, fence: WorkflowFence, now: datetime, expires: datetime) -> bool:
+        return (
+            await self.session.scalar(
+                update(WorkflowRun)
+                .where(
+                    WorkflowRun.id == fence.workflow_run_id,
+                    WorkflowRun.prompt_request_id == fence.prompt_request_id,
+                    WorkflowRun.execution_token == fence.execution_token,
+                    WorkflowRun.lease_expires_at > now,
+                    WorkflowRun.status.in_(("GENERATING", "REVISING", "EVALUATING")),
+                    WorkflowRun.state_revision == fence.state_revision,
+                    WorkflowRun.completed_rounds == fence.completed_rounds,
+                )
+                .values(
+                    lease_expires_at=expires,
+                    state_revision=WorkflowRun.state_revision + 1,
+                )
+                .returning(WorkflowRun.id)
+                .execution_options(synchronize_session=False)
+            )
+            is not None
+        )
+
     async def advance(
         self,
         fence: WorkflowFence,

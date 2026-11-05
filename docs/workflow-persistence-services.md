@@ -5,6 +5,11 @@ finalization](atomic-evaluation-persistence.md). The M5E-3B operation contracts 
 remain unchanged; normal Evaluation writes and selected-best progress now exist as
 internal service actions, without optimizer or API activation.
 
+M5E-4 now supplies a separate [explicit persistent optimizer adapter](persistent-optimizer-execution.md).
+Services still dispatch nothing; the adapter runs in the caller's task. Internal
+`execution_snapshot()` supplies bounded stored input/history and `renew_claim()`
+supports explicit live-claim renewal between operations. No public API is activated.
+
 ## Implemented, without execution activation
 
 `WorkflowPersistenceService` uses the M5E-3A dedicated write engine and M5E-2
@@ -23,8 +28,10 @@ inside the new unit: it owns its separate API commit.
 | --- | --- |
 | `create_workflow(request_id, configuration, client_idempotency_key=None)` | Load/validate an existing source; insert PENDING or return an exact explicit-key retry. Returns WorkflowCreation. |
 | `claim_workflow(request_id, workflow_id, expected_revision=..., lease_seconds=...)` | Conditional PENDING → GENERATING claim, fresh UUID token, bounded lease. Returns WorkflowState. |
+| `renew_claim(fence, lease_seconds=...)` | Explicit current-token/revision/count renewal in an active phase before expiry; never takeover. Returns WorkflowState. |
+| `execution_snapshot(fence)` | Scoped detached source/configuration and validated committed history/round references, at the exact current fence. Returns WorkflowExecutionSnapshot. |
 | `reserve_operation(fence, identity, binding, revision_input=None)` | Reserve one logical create/revise/evaluate operation as RUNNING. Returns OperationReceipt. |
-| `complete_architect(fence, agent_run_id, outcome)` | Validate an existing Architect handoff/revision and stage its result; no version/Evaluation creation. Returns OperationReceipt. |
+| `complete_architect(fence, agent_run_id, outcome, defer_clarification=False)` | Validate/stage an existing Architect handoff/revision; opt-in deferral leaves clarification terminalization to M5E-3C. Default behavior unchanged. Returns OperationReceipt. |
 | `fail_operation(fence, agent_run_id, error_code=..., metadata=None)` | Atomically record AgentRun failure and FAILED workflow classification. Returns OperationReceipt. |
 | `complete_evaluation(command)` | Atomically create PromptVersion/Evaluation, complete the Critic, advance progress and derive best selection. Returns EvaluationReceipt. |
 | `finalize_workflow(command)` | Validate terminal evidence and atomically finalize with retained history/best. Returns FinalizationReceipt. |
@@ -94,8 +101,9 @@ M5E-3C completion advances those atomically when its Evaluation writes succeed.
 An identical reservation/result retry is a read-only replay and may carry the original
 expected revision after the first action advanced it. It still checks the current
 token/live lease/source and exact stored identity/data. A conflicting retry fails;
-completed operations cannot be replaced. No lease renewal, lease transfer or stale
-replay is implemented. Terminal token/expiry values are retained as historical fencing
+completed operations cannot be replaced. M5E-3B supplies no renewal itself; M5E-4's
+explicit `renew_claim` requires an unexpired current owner and advances the revision.
+No lease transfer or stale reservation/staging replay is implemented. Terminal token/expiry values are retained as historical fencing
 identity for bounded identical-result retries; terminal status still prevents new
 mutations. Expired owners are refused even for these retries.
 
@@ -182,6 +190,6 @@ can leave acknowledgment uncertain; an identical retry must reconcile stored ide
 not replay a model call. These tests do not prove power-loss durability.
 
 M5E-3C implements atomic candidate/Evaluation writes, completed-round progress and
-final best-candidate references. M5E-4 owns actual opt-in optimizer/service integration and
-deadline/stop enforcement. M5E-5 owns stale-run recovery. ADR-003/005/007 policies are
+final best-candidate references. M5E-4 implements the opt-in optimizer/service adapter
+and delegates deadline/stop enforcement to the existing loop. M5E-5 owns stale-run recovery. ADR-003/005/007 policies are
 unchanged. There are no new endpoints, migrations, tables or public workflow APIs.

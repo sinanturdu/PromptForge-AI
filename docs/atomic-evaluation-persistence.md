@@ -171,3 +171,9 @@ M5E-4 still owns opt-in optimizer/service integration, actual dispatch and runti
 deadline/stop enforcement. M5E-5 owns interrupted-run inspection/recovery and any
 explicit resumption policy. No runner, renewal/takeover, background replay, public
 workflow API or automatic recovery is introduced here.
+
+M5E-4 now provides [explicit persistent optimizer execution](persistent-optimizer-execution.md)
+over these unchanged atomic Evaluation/finalization contracts. Its separate opt-in
+adapter uses explicit live-claim renewal and can defer Architect clarification
+terminalization until the loop has made its final decision. The original M5E-3C
+scope above remains historical; no public API, runner or recovery is activated.

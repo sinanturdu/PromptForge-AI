@@ -1,5 +1,10 @@
 # Bounded in-memory optimization — M5D-4
 
+M5E-4 adds a separate [opt-in persistent entry point](persistent-optimizer-execution.md)
+using this same loop through the optional OptimizationExecution I/O seam. Default
+`optimize_prompt()` behavior remains in memory. The seam adds no scoring/selection/
+stopping algorithm and does not activate persistence for existing API requests.
+
 ## Entry point and ownership
 
 ```python

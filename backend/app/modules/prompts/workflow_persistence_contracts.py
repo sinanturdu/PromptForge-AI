@@ -10,7 +10,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from app.agents.revision_schemas import ProtectedSourceSpan
 from app.llm.errors import LLMError
 from app.llm.schemas import LLMModel, ModelSettings
+from app.modules.prompts.architect_contracts import ArchitectRequestSnapshot
 from app.modules.prompts.architect_critic_pass import EvaluatedCandidate
+from app.modules.prompts.optimization_contracts import EvaluationHistory
 from app.modules.prompts.persistence_contracts import (
     CallMetadataStorage,
     Digest,
@@ -176,3 +178,19 @@ class FinalizationReceipt(LLMModel):
     quality_status: Literal["qualified", "not_qualified", "unassessable"] | None
     terminal: TerminalDetailsStorage = Field(repr=False)
     replayed: bool
+
+
+class PersistedEvaluationReference(LLMModel):
+    evaluation_round: int = Field(ge=1, le=3)
+    evaluation_id: UUID
+    prompt_version_id: UUID
+
+
+class WorkflowExecutionSnapshot(LLMModel):
+    """Bounded internal execution input/readback, detached from all ORM state."""
+
+    workflow: WorkflowState
+    source: ArchitectRequestSnapshot = Field(repr=False)
+    configuration: WorkflowConfiguration = Field(repr=False)
+    history: EvaluationHistory | None = Field(repr=False)
+    evaluations: tuple[PersistedEvaluationReference, ...] = Field(max_length=3)

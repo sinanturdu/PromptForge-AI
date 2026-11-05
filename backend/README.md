@@ -77,6 +77,13 @@ completes the Critic and updates progress/best selection. Explicit fenced finali
 retains completed history on failure or clarification. Exact committed results can
 be reconciled without replaying a model call. Optimizer/API activation remains deferred.
 
+M5E-4 adds [explicit persistent optimizer execution](../docs/persistent-optimizer-execution.md):
+`execute_persisted_optimizer()` claims a selected stored workflow and adapts the existing
+M5D loop to durable reservations, agent results, Evaluation commits and finalization.
+Stored configuration is authoritative; lease renewal occurs only between operations.
+This internal caller-task path is opt-in. Existing APIs/startup remain unchanged;
+background execution, recovery and public readback remain deferred to later work.
+
 ## Mevcut durum (Milestone 2A, 3A, 3B, 3C-1 & 3C-2 — Uygulandı)
 
 - `GET /api/v1/health` uç noktası ve otomatik OpenAPI dokümantasyonu (`/docs`, `/redoc`, `/api/v1/openapi.json`)
@@ -321,8 +328,8 @@ Merkezi hata yakalayıcılar (`app/api/error_handlers.py`) tüm HTTP hataların�
 
 - İstek hız sınırlama (rate limiting), dağıtık izleme (OpenTelemetry/Sentry) ve kullanıcı kimlik doğrulama ilk MVP M3C-2 kapsamı dışındadır (`ADR-008`).
 - Kayıt silme veya geçmiş prompt isteklerini düzenleme uç noktaları bu aşamada kapsam dışıdır.
-- Tek `evaluations` tablosu ve sürümlü JSON sözleşmesi uygulanmıştır. İç WorkflowRun/AgentRun servisleri M5E-3B'de, atomik PromptVersion/Evaluation yazımı, normal bitiş ve seçim M5E-3C'de hazırdır; optimizer ve genel API bağlantısı etkin değildir.
-- LLMGateway, sağlayıcılar, Architect, bağımsız Critic/ScoringEngine ve sınırlı bellek içi optimizer uygulanmıştır. Ajan sonuçlarının kalıcı saklama sınırı iç servis olarak hazırdır; gerçek yürütme bağlantısı M5E-4'e ayrılmıştır. Ayrı yetkilendirme olmadan gerçek model çağrıları/testleri çalıştırılmaz.
+- Tek `evaluations` tablosu ve sürümlü JSON sözleşmesi uygulanmıştır. İç WorkflowRun/AgentRun servisleri M5E-3B'de, atomik PromptVersion/Evaluation yazımı, normal bitiş ve seçim M5E-3C'de hazırdır; genel API bağlantısı etkin değildir.
+- LLMGateway, sağlayıcılar, Architect, bağımsız Critic/ScoringEngine ve sınırlı bellek içi optimizer uygulanmıştır. M5E-4 kalıcı optimizer yürütmesini açıkça çağrılan iç yol olarak ekler; mevcut istekler otomatik model çağrısı veya workflow başlatmaz. Ayrı yetkilendirme olmadan gerçek model çağrıları/testleri çalıştırılmaz.
 
 ### Gelecek Genişleme Noktaları
 
