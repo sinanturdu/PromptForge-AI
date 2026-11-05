@@ -9,11 +9,11 @@ import traceback
 import warnings
 from datetime import UTC, datetime
 from decimal import Decimal, localcontext
-from pathlib import Path
 from typing import Any
 from uuid import UUID
 
 import pytest
+from benchmarks.critic_cases import load_dataset
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -62,9 +62,11 @@ from app.scoring.schemas import ScoringResult
 PRIVATE = "PRIVATE_CRITIC_CONTENT_SENTINEL"
 NOTE = "PRIVATE_ARCHITECT_EXPLANATION_SENTINEL"
 REQUEST_ID = UUID("00000000-0000-0000-0000-000000000031")
-CASES: list[dict[str, Any]] = json.loads(
-    (Path(__file__).parent / "fixtures" / "critic_cases.json").read_text(encoding="utf-8")
-)
+CASES: list[dict[str, Any]] = [
+    case.contract_example.model_dump()
+    for case in load_dataset().cases
+    if case.contract_example is not None
+]
 
 
 def blind(raw: str = "Translate 'hello' into Turkish.", **updates: Any) -> CriticInput:

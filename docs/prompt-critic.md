@@ -183,3 +183,8 @@ scoring tests. These scripted judgments verify contracts, privacy, evidence
 attribution, arithmetic, gates and lifecycle behavior, not actual model judgment.
 The full backend suite retains external-connection blocking and per-test development
 SQLite/WAL/SHM snapshots. No live model or dependency additions are required.
+
+M5C-3 extends the same Critic fixture to 36 bilingual scenarios with 43 scripted
+software probes. `uv run python -m benchmarks.prompt_critic --report` exercises
+the existing agent/scorer and keeps all semantic verdicts pending. See the
+[adversarial benchmark and controlled-calibration procedure](critic-benchmark.md).
