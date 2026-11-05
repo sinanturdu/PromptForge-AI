@@ -1,5 +1,10 @@
 # Workflow and Agent persistence services — M5E-3B
 
+M5E-3C extends this boundary with [atomic evaluation completion and workflow
+finalization](atomic-evaluation-persistence.md). The M5E-3B operation contracts below
+remain unchanged; normal Evaluation writes and selected-best progress now exist as
+internal service actions, without optimizer or API activation.
+
 ## Implemented, without execution activation
 
 `WorkflowPersistenceService` uses the M5E-3A dedicated write engine and M5E-2
@@ -9,8 +14,8 @@ to the composition owner. No session is retained in the service or returned to a
 caller. Receipts are immutable Pydantic values and arrive only after commit/close.
 The existing request-scoped PromptRequestService and APIs are unchanged.
 
-There are no provider calls, optimizer hooks, workflow endpoints, background runner,
-normal Evaluation writes, final selection or recovery. Service methods are internal
+There are no provider calls, optimizer hooks, workflow endpoints, background runner
+or recovery. Service methods are internal
 Python interfaces, not available HTTP APIs. Do not call the legacy PromptRequestService
 inside the new unit: it owns its separate API commit.
 
@@ -21,6 +26,8 @@ inside the new unit: it owns its separate API commit.
 | `reserve_operation(fence, identity, binding, revision_input=None)` | Reserve one logical create/revise/evaluate operation as RUNNING. Returns OperationReceipt. |
 | `complete_architect(fence, agent_run_id, outcome)` | Validate an existing Architect handoff/revision and stage its result; no version/Evaluation creation. Returns OperationReceipt. |
 | `fail_operation(fence, agent_run_id, error_code=..., metadata=None)` | Atomically record AgentRun failure and FAILED workflow classification. Returns OperationReceipt. |
+| `complete_evaluation(command)` | Atomically create PromptVersion/Evaluation, complete the Critic, advance progress and derive best selection. Returns EvaluationReceipt. |
+| `finalize_workflow(command)` | Validate terminal evidence and atomically finalize with retained history/best. Returns FinalizationReceipt. |
 
 `WorkflowState.fence()` captures request/workflow IDs, token, expected revision and
 completed-round count for the next mutation. `replayed=True` explicitly means no new
@@ -81,8 +88,8 @@ provider await. One Architect operation and one Critic operation may be reserved
 round; gateway retries do not allocate additional AgentRuns.
 
 Creation phase is GENERATING, revision phase REVISING, and Critic phase EVALUATING.
-The service does not advance completed-round counters or invent later rounds.
-M5E-3C must atomically advance those when its Evaluation writes succeed.
+M5E-3B actions do not advance completed-round counters or invent later rounds.
+M5E-3C completion advances those atomically when its Evaluation writes succeed.
 
 An identical reservation/result retry is a read-only replay and may carry the original
 expected revision after the first action advanced it. It still checks the current
@@ -130,10 +137,10 @@ logged. Callers must supply None when observations are unavailable.
 | Clarification | AgentRun COMPLETED, workflow CLARIFICATION_REQUIRED, questions in terminal details. No new version/Evaluation. |
 | Failure, including Critic failure | AgentRun FAILED, workflow FAILED with safe classification. Existing progress/history/selection fields remain untouched. |
 
-There is deliberately no successful Critic completion method: its AgentRun completion,
-PromptVersion/Evaluation insertion, progress and selection must commit together in
-M5E-3C. Technical completion never fabricates quality qualification. Failure does not
-calculate a new best selection or reset prior history; later integration reconciles it.
+There is deliberately no standalone successful Critic completion method: its AgentRun
+completion, PromptVersion/Evaluation insertion, progress and selection commit together
+in M5E-3C `complete_evaluation`. Technical completion never fabricates quality
+qualification. M5E-3B failure retains prior selection; M5E-3C finalization revalidates it.
 
 Expected errors have fixed `not_found`, `conflict`, `invalid` or `unavailable` codes.
 Unique identity conflicts are distinguished from other database failures. Translation
@@ -154,8 +161,8 @@ independent concurrent creation/claims/reservations, stale tokens, phases/revisi
 lease bounds/expiry, cross-workflow provenance, mirrored column tampering, preserved/
 revised/unchanged/clarification/failure outcomes, nullable telemetry, error privacy,
 rollback after flushed writes, and cancellation/connection closure. Existing API and
-optimizer regressions remain in the full suite. Completed Evaluation history is seeded
-only by explicit test fixtures simulating future M5E-3C, not by production service code.
+optimizer regressions remain in the full suite. The unchanged M5E-3B tests seed
+Evaluation history explicitly; M5E-3C tests exercise actual atomic completion instead.
 Fake-provider assertions establish contracts, not real-model semantic quality.
 
 ```powershell
@@ -174,7 +181,7 @@ database corruption cannot be repaired by digests. Cancellation at a successful 
 can leave acknowledgment uncertain; an identical retry must reconcile stored identity,
 not replay a model call. These tests do not prove power-loss durability.
 
-M5E-3C owns atomic candidate/Evaluation writes, completed-round progress and final
-best-candidate references. M5E-4 owns actual opt-in optimizer/service integration and
+M5E-3C implements atomic candidate/Evaluation writes, completed-round progress and
+final best-candidate references. M5E-4 owns actual opt-in optimizer/service integration and
 deadline/stop enforcement. M5E-5 owns stale-run recovery. ADR-003/005/007 policies are
 unchanged. There are no new endpoints, migrations, tables or public workflow APIs.

@@ -10,11 +10,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from app.agents.revision_schemas import ProtectedSourceSpan
 from app.llm.errors import LLMError
 from app.llm.schemas import LLMModel, ModelSettings
+from app.modules.prompts.architect_critic_pass import EvaluatedCandidate
 from app.modules.prompts.persistence_contracts import (
     CallMetadataStorage,
     Digest,
     OperationResultStorage,
     PersistenceModel,
+    TerminalDetailsStorage,
 )
 
 Version = Annotated[str, Field(min_length=1, max_length=32)]
@@ -136,4 +138,41 @@ class OperationState(LLMModel):
 class OperationReceipt(LLMModel):
     workflow: WorkflowState
     agent: OperationState
+    replayed: bool
+
+
+class EvaluationCompletion(LLMModel):
+    """One exact evaluated candidate; identity is the already reserved Critic operation."""
+
+    fence: WorkflowFence = Field(repr=False)
+    architect_agent_run_id: UUID
+    critic_agent_run_id: UUID
+    critic_operation_key: OperationKey = Field(repr=False)
+    evaluation_round: int = Field(ge=1, le=3)
+    evaluated: EvaluatedCandidate = Field(repr=False)
+
+
+class EvaluationReceipt(LLMModel):
+    workflow: WorkflowState
+    prompt_version_id: UUID
+    evaluation_id: UUID
+    evaluation_round: int
+    best_version_id: UUID
+    best_evaluation_id: UUID
+    quality_status: Literal["qualified", "not_qualified", "unassessable"]
+    replayed: bool
+
+
+class WorkflowFinalization(LLMModel):
+    fence: WorkflowFence = Field(repr=False)
+    details: TerminalDetailsStorage = Field(repr=False)
+    agent_run_id: UUID | None = None
+
+
+class FinalizationReceipt(LLMModel):
+    workflow: WorkflowState
+    best_version_id: UUID | None
+    best_evaluation_id: UUID | None
+    quality_status: Literal["qualified", "not_qualified", "unassessable"] | None
+    terminal: TerminalDetailsStorage = Field(repr=False)
     replayed: bool

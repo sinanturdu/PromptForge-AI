@@ -71,6 +71,12 @@ environment on temporary migrated WAL/FULL databases. Use the private interprete
 commands in that document for the full suite; new WAL service tests refuse the older
 SQLite 3.45.3 environment. No runner, public API or optimizer activation is introduced.
 
+M5E-3C adds internal [atomic evaluation persistence and workflow finalization](../docs/atomic-evaluation-persistence.md):
+one transaction promotes a staged candidate, stores its independent Critic Evaluation,
+completes the Critic and updates progress/best selection. Explicit fenced finalization
+retains completed history on failure or clarification. Exact committed results can
+be reconciled without replaying a model call. Optimizer/API activation remains deferred.
+
 ## Mevcut durum (Milestone 2A, 3A, 3B, 3C-1 & 3C-2 — Uygulandı)
 
 - `GET /api/v1/health` uç noktası ve otomatik OpenAPI dokümantasyonu (`/docs`, `/redoc`, `/api/v1/openapi.json`)
@@ -315,8 +321,8 @@ Merkezi hata yakalayıcılar (`app/api/error_handlers.py`) tüm HTTP hataların�
 
 - İstek hız sınırlama (rate limiting), dağıtık izleme (OpenTelemetry/Sentry) ve kullanıcı kimlik doğrulama ilk MVP M3C-2 kapsamı dışındadır (`ADR-008`).
 - Kayıt silme veya geçmiş prompt isteklerini düzenleme uç noktaları bu aşamada kapsam dışıdır.
-- Tek `evaluations` tablosu ve sürümlü JSON sözleşmesi uygulanmıştır. İç WorkflowRun/AgentRun servisleri M5E-3B'de hazırdır; atomik PromptVersion/Evaluation yazımı, normal bitiş ve seçim M5E-3C'ye ayrılmıştır.
-- LLMGateway, sağlayıcılar, Architect, bağımsız Critic/ScoringEngine ve sınırlı bellek içi optimizer uygulanmıştır. Ajan sonuçlarının veritabanına yazılması M5E-3'e ayrılmıştır. Ayrı yetkilendirme olmadan gerçek model çağrıları/testleri çalıştırılmaz.
+- Tek `evaluations` tablosu ve sürümlü JSON sözleşmesi uygulanmıştır. İç WorkflowRun/AgentRun servisleri M5E-3B'de, atomik PromptVersion/Evaluation yazımı, normal bitiş ve seçim M5E-3C'de hazırdır; optimizer ve genel API bağlantısı etkin değildir.
+- LLMGateway, sağlayıcılar, Architect, bağımsız Critic/ScoringEngine ve sınırlı bellek içi optimizer uygulanmıştır. Ajan sonuçlarının kalıcı saklama sınırı iç servis olarak hazırdır; gerçek yürütme bağlantısı M5E-4'e ayrılmıştır. Ayrı yetkilendirme olmadan gerçek model çağrıları/testleri çalıştırılmaz.
 
 ### Gelecek Genişleme Noktaları
 

@@ -24,21 +24,24 @@ from app.db.sqlite_runtime import SQLiteRuntimeSafetyError
 from app.db.write_transactions import write_transaction
 from app.llm.errors import LLMError, LLMErrorCode
 from app.llm.schemas import CallMetadata
-from app.models import AgentRun, WorkflowRun
+from app.models import AgentRun, Evaluation, PromptVersion, WorkflowRun
 from app.modules.prompts.architect_contracts import (
     ArchitectHandoff,
     ArchitectRequestSnapshot,
+    ArchitectRunContext,
     CandidateReady,
     ClarificationRequired,
     CriticInput,
     critic_input_fingerprint,
 )
 from app.modules.prompts.canonical import CanonicalPrompt
+from app.modules.prompts.optimization_progress import check_candidate_progress
 from app.modules.prompts.optimizer_contracts import OptimizationOperation, failure_reason
 from app.modules.prompts.persistence_contracts import (
     STORAGE_VERSION,
     CallMetadataStorage,
     CandidateStorage,
+    EvaluationStorage,
     OperationBindingStorage,
     OperationResultStorage,
     RequestPreferenceSnapshot,
@@ -47,7 +50,18 @@ from app.modules.prompts.persistence_contracts import (
     request_content_digest,
 )
 from app.modules.prompts.schemas import PromptRequestRead
+from app.modules.prompts.workflow_history import (
+    DurableHistory,
+    load_history,
+    staged_candidate,
+    staged_revision,
+    stopping_reason,
+    validate_best,
+)
 from app.modules.prompts.workflow_persistence_contracts import (
+    EvaluationCompletion,
+    EvaluationReceipt,
+    FinalizationReceipt,
     OperationIdentity,
     OperationParameters,
     OperationReceipt,
@@ -56,6 +70,7 @@ from app.modules.prompts.workflow_persistence_contracts import (
     WorkflowConfiguration,
     WorkflowCreation,
     WorkflowFence,
+    WorkflowFinalization,
     WorkflowState,
     validated,
 )
@@ -66,7 +81,11 @@ from app.modules.prompts.workflow_provenance import (
     operation_binding,
     revision_binding,
 )
-from app.modules.prompts.workflow_repository import AgentRunRepository, WorkflowRunRepository
+from app.modules.prompts.workflow_repository import (
+    AgentRunRepository,
+    EvaluationRepository,
+    WorkflowRunRepository,
+)
 
 _PHASE = {"create": "GENERATING", "revise": "REVISING", "evaluate": "EVALUATING"}
 _OPERATION: dict[str, OptimizationOperation] = {
@@ -612,3 +631,349 @@ class WorkflowPersistenceService:
         await workflows.refresh(row)
         await agents.refresh(agent)
         return _receipt(row, agent, False)
+
+    async def _completion_scope(
+        self,
+        workflows: WorkflowRunRepository,
+        fence: WorkflowFence,
+    ) -> tuple[WorkflowRun, ArchitectRequestSnapshot, WorkflowConfiguration]:
+        """A matching historical token permits exact reconciliation, not a new write."""
+        row = await workflows.get_for_request(fence.workflow_run_id, fence.prompt_request_id)
+        if row is None:
+            raise PersistenceError("not_found")
+        if row.execution_token != fence.execution_token:
+            raise PersistenceError("conflict")
+        source, config = await bound_source(workflows, row)
+        return row, source, config
+
+    @staticmethod
+    def _evaluation_receipt(
+        row: WorkflowRun,
+        durable: DurableHistory,
+        record: Evaluation,
+        replayed: bool,
+    ) -> EvaluationReceipt:
+        best = durable.best()
+        if best is None:
+            raise PersistenceError("invalid")
+        return EvaluationReceipt(
+            workflow=_workflow(row),
+            prompt_version_id=record.prompt_version_id,
+            evaluation_id=record.id,
+            evaluation_round=record.evaluation_round,
+            best_version_id=best[1].id,
+            best_evaluation_id=best[0].id,
+            quality_status=best[2].scoring.status,
+            replayed=replayed,
+        )
+
+    @_action
+    async def complete_evaluation(self, command: EvaluationCompletion) -> EvaluationReceipt:
+        command = validated(EvaluationCompletion, command)
+        async with write_transaction(self._engine) as session:
+            workflows, agents = WorkflowRunRepository(session), AgentRunRepository(session)
+            evaluations = EvaluationRepository(session)
+            row, source, config = await self._completion_scope(workflows, command.fence)
+            durable = await load_history(workflows, agents, row, source, config)
+            validate_best(row, durable)
+            creator = await agents.get_for_workflow(command.architect_agent_run_id, row.id)
+            critic = await agents.get_for_workflow(command.critic_agent_run_id, row.id)
+            if creator is None or critic is None:
+                raise PersistenceError("not_found")
+            binding = operation_binding(critic)
+            parameters = OperationParameters.from_json_value(critic.parameters)
+            candidate = staged_candidate(row, source, creator)
+            assessed = command.evaluated
+            if (
+                binding.operation != "evaluate"
+                or binding.evaluation_round != command.evaluation_round
+                or critic.operation_key != command.critic_operation_key
+                or creator.evaluation_round != command.evaluation_round
+                or parameters.candidate_agent_run_id != creator.id
+                or parameters.input_fingerprint != assessed.critic.input_fingerprint
+                or candidate != assessed.candidate
+                or critic.agent_version != assessed.critic.agent_version
+                or critic.instruction_version != assessed.critic.instruction_version
+                or (
+                    critic.provider is not None
+                    and critic.provider != assessed.critic.metadata.provider
+                )
+                or (
+                    critic.model is not None
+                    and critic.model != assessed.critic.metadata.requested_model
+                )
+                or any(
+                    span.text(source) not in candidate.rendered_prompt
+                    for span in config.protected_spans
+                )
+            ):
+                raise PersistenceError("conflict")
+            previous = await evaluations.for_critic(row.id, critic.id)
+            if previous is not None:
+                if durable.history is None or critic.status != "COMPLETED":
+                    raise PersistenceError("conflict")
+                stored = durable.history.rounds[previous.evaluation_round - 1].evaluated
+                if previous.evaluation_round != command.evaluation_round or stored != assessed:
+                    raise PersistenceError("conflict")
+                return self._evaluation_receipt(row, durable, previous, True)
+            if (
+                critic.status != "RUNNING"
+                or row.lease_expires_at is None
+                or row.lease_expires_at <= self._now()
+            ):
+                raise PersistenceError("conflict")
+            await self._round(workflows, row, command.fence, binding)
+            parent_id = None
+            creator_binding = operation_binding(creator)
+            if creator_binding.operation == "revise":
+                revised = staged_revision(row, source, creator, durable, config)
+                if (
+                    durable.history is None
+                    or check_candidate_progress(durable.history, revised).action != "evaluate"
+                ):
+                    raise PersistenceError("conflict")
+                parent_record = next(
+                    (
+                        value
+                        for value in durable.evaluations
+                        if value.id == creator_binding.baseline_evaluation_id
+                    ),
+                    None,
+                )
+                if parent_record is None:
+                    raise PersistenceError("conflict")
+                parent_id = parent_record.prompt_version_id
+            elif (
+                creator_binding.operation != "create"
+                or command.evaluation_round != 1
+                or durable.history is not None
+            ):
+                raise PersistenceError("conflict")
+            version = PromptVersion(
+                prompt_request_id=source.id,
+                workflow_run_id=row.id,
+                agent_run_id=creator.id,
+                parent_version_id=parent_id,
+                version_number=await evaluations.next_version_number(source.id),
+                evaluation_round=command.evaluation_round,
+                source="engineer_create"
+                if creator_binding.operation == "create"
+                else "engineer_revise",
+                target_mode=source.target_mode.value,
+                renderer_name=candidate.renderer_name,
+                renderer_version=candidate.renderer_version,
+                canonical_prompt=candidate.canonical_prompt.model_dump(mode="json"),
+                rendered_prompt=candidate.rendered_prompt,
+                change_summary=list(candidate.changes),
+                created_at=self._now(),
+            )
+            await evaluations.insert_version(version)
+            now = self._now()
+            record = Evaluation(
+                **EvaluationStorage.from_evaluated(
+                    assessed,
+                    workflow_run_id=row.id,
+                    prompt_version_id=version.id,
+                    critic_agent_run_id=critic.id,
+                    evaluation_round=command.evaluation_round,
+                    completed_at=now,
+                ).record_values(),
+                created_at=now,
+            )
+            await evaluations.insert_evaluation(record)
+            result = OperationResultStorage(
+                schema_version=STORAGE_VERSION,
+                kind="evaluation",
+                evaluation_id=record.id,
+            )
+            if not await agents.finish(
+                critic,
+                result.model_dump(mode="json"),
+                CallMetadataStorage.from_metadata(assessed.critic.metadata).model_dump(mode="json"),
+                now,
+            ):
+                raise PersistenceError("conflict")
+            await agents.refresh(critic)
+            complete = await load_history(
+                workflows,
+                agents,
+                row,
+                source,
+                config,
+                count=row.completed_rounds + 1,
+            )
+            best = complete.best()
+            if best is None:
+                raise PersistenceError("invalid")
+            stop = await stopping_reason(complete, config, agents, row)
+            count = len(complete.evaluations)
+            if not await workflows.record_progress(
+                command.fence,
+                "EVALUATING",
+                self._now(),
+                completed=count,
+                current=count if stop is not None else count + 1,
+                next_phase="EVALUATING" if stop is not None else "REVISING",
+                best_version_id=best[1].id,
+                score=best[2].scoring.total_score,
+                qualified=best[2].scoring.passed,
+            ):
+                raise PersistenceError("conflict")
+            await workflows.refresh(row)
+            return self._evaluation_receipt(row, complete, record, False)
+
+    async def _validate_terminal(
+        self,
+        command: WorkflowFinalization,
+        row: WorkflowRun,
+        source: ArchitectRequestSnapshot,
+        config: WorkflowConfiguration,
+        durable: DurableHistory,
+        agents: AgentRunRepository,
+        workflows: WorkflowRunRepository,
+    ) -> AgentRun | None:
+        details = command.details
+        operations = await agents.for_workflow(row.id)
+        running = [value for value in operations if value.status == "RUNNING"]
+        agent = None
+        if command.agent_run_id is not None:
+            agent = await agents.get_for_workflow(command.agent_run_id, row.id)
+            if agent is None:
+                raise PersistenceError("not_found")
+            binding = operation_binding(agent)
+            if binding.evaluation_round != row.current_round:
+                raise PersistenceError("conflict")
+        if details.execution_status == "FAILED":
+            if any(value.id != command.agent_run_id for value in running):
+                raise PersistenceError("conflict")
+            if agent is not None:
+                if details.failed_operation != _OPERATION[agent.operation]:
+                    raise PersistenceError("conflict")
+                if agent.status == "FAILED":
+                    result = OperationResultStorage.from_json_value(agent.result_data)
+                    if result.kind != "failed" or result.error_code != details.error_code:
+                        raise PersistenceError("conflict")
+                elif agent.status == "RUNNING":
+                    await self._round(workflows, row, command.fence, operation_binding(agent))
+                else:
+                    raise PersistenceError("conflict")
+            return agent
+        if running:
+            raise PersistenceError("conflict")
+        if details.execution_status == "CLARIFICATION_REQUIRED":
+            if agent is None or agent.status != "COMPLETED" or agent.result_kind != "clarification":
+                raise PersistenceError("conflict")
+            result = OperationResultStorage.from_json_value(agent.result_data)
+            if result.questions != details.questions:
+                raise PersistenceError("conflict")
+            if agent.operation == "create":
+                if durable.history is not None:
+                    raise PersistenceError("conflict")
+                ClarificationRequired.model_validate(
+                    dict(
+                        original_request=source,
+                        context=ArchitectRunContext(
+                            prompt_request_id=source.id,
+                            workflow_run_id=row.id,
+                            workflow_prompt_request_id=source.id,
+                            agent_run_id=agent.id,
+                            agent_workflow_run_id=row.id,
+                        ),
+                        metadata=observed_metadata(agent),
+                        agent_version=agent.agent_version,
+                        instruction_version=agent.instruction_version,
+                        questions=result.questions,
+                    )
+                )
+            else:
+                proposed = staged_revision(row, source, agent, durable, config)
+                if (
+                    durable.history is None
+                    or check_candidate_progress(durable.history, proposed).reason
+                    != "clarification_required"
+                ):
+                    raise PersistenceError("conflict")
+            return agent
+        if durable.history is None:
+            raise PersistenceError("conflict")
+        if agent is not None:
+            proposed = staged_revision(row, source, agent, durable, config)
+            decision = check_candidate_progress(durable.history, proposed)
+            if decision.action != "stop" or decision.reason != details.termination_reason:
+                raise PersistenceError("conflict")
+        elif (
+            row.current_round > row.completed_rounds
+            or await stopping_reason(durable, config, agents, row) != details.termination_reason
+        ):
+            raise PersistenceError("conflict")
+        return agent
+
+    @_action
+    async def finalize_workflow(self, command: WorkflowFinalization) -> FinalizationReceipt:
+        command = validated(WorkflowFinalization, command)
+        async with write_transaction(self._engine) as session:
+            workflows, agents = WorkflowRunRepository(session), AgentRunRepository(session)
+            row, source, config = await self._completion_scope(workflows, command.fence)
+            durable = await load_history(workflows, agents, row, source, config)
+            validate_best(row, durable)
+            agent = await self._validate_terminal(
+                command, row, source, config, durable, agents, workflows
+            )
+            details = command.details.model_dump(mode="json")
+            replayed = row.status in {"COMPLETED", "FAILED", "CLARIFICATION_REQUIRED"}
+            if replayed:
+                if (
+                    row.status != command.details.execution_status
+                    or row.finished_at is None
+                    or row.stop_reason != command.details.termination_reason
+                    or row.error_code != command.details.error_code
+                    or TerminalDetailsStorage.from_json_value(row.terminal_details)
+                    != command.details
+                ):
+                    raise PersistenceError("conflict")
+            else:
+                if (
+                    row.status not in {"GENERATING", "REVISING", "EVALUATING"}
+                    or row.lease_expires_at is None
+                    or row.lease_expires_at <= self._now()
+                    or row.state_revision != command.fence.state_revision
+                    or row.completed_rounds != command.fence.completed_rounds
+                ):
+                    raise PersistenceError("conflict")
+                best = durable.best()
+                now = self._now()
+                if (
+                    command.details.execution_status == "FAILED"
+                    and agent is not None
+                    and agent.status == "RUNNING"
+                ):
+                    result = OperationResultStorage(
+                        schema_version=STORAGE_VERSION,
+                        kind="failed",
+                        error_code=command.details.error_code,
+                    )
+                    if not await agents.finish(agent, result.model_dump(mode="json"), None, now):
+                        raise PersistenceError("conflict")
+                if not await workflows.record_progress(
+                    command.fence,
+                    row.status,
+                    now,
+                    completed=len(durable.evaluations),
+                    current=row.current_round,
+                    next_phase=command.details.execution_status,
+                    best_version_id=None if best is None else best[1].id,
+                    score=None if best is None else best[2].scoring.total_score,
+                    qualified=None if best is None else best[2].scoring.passed,
+                    terminal=details,
+                ):
+                    raise PersistenceError("conflict")
+                await workflows.refresh(row)
+            best = durable.best()
+            return FinalizationReceipt(
+                workflow=_workflow(row),
+                best_version_id=None if best is None else best[1].id,
+                best_evaluation_id=None if best is None else best[0].id,
+                quality_status=None if best is None else best[2].scoring.status,
+                terminal=command.details,
+                replayed=replayed,
+            )

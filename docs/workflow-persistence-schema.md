@@ -1,5 +1,10 @@
 # Workflow persistence schema and storage contracts — M5E-2
 
+Current implementation: M5E-3B adds internal operation persistence and M5E-3C adds
+[atomic evaluation completion/finalization](atomic-evaluation-persistence.md) using
+this unchanged schema. The M5E-2 scope/history below is not a claim of workflow
+execution availability; optimizer activation and recovery remain deferred.
+
 ## Implemented scope
 
 Revision `0002_workflow_persistence`, after `0001_initial_schema`, adds schema and

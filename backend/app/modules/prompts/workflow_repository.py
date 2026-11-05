@@ -1,10 +1,11 @@
 """Scoped WorkflowRun/AgentRun SQL; only services own commit and rollback."""
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import AgentRun, Evaluation, PromptRequest, PromptVersion, WorkflowRun
@@ -129,6 +130,95 @@ class WorkflowRunRepository:
             ).all()
         )
 
+    async def versions(self, workflow_id: UUID) -> list[PromptVersion]:
+        return list(
+            (
+                await self.session.scalars(
+                    select(PromptVersion).where(PromptVersion.workflow_run_id == workflow_id)
+                )
+            ).all()
+        )
+
+    async def record_progress(
+        self,
+        fence: WorkflowFence,
+        phase: str,
+        now: datetime,
+        *,
+        completed: int,
+        current: int,
+        next_phase: str,
+        best_version_id: UUID | None,
+        score: Decimal | None,
+        qualified: bool | None,
+        terminal: dict[str, Any] | None = None,
+    ) -> bool:
+        statement = (
+            update(WorkflowRun)
+            .where(
+                WorkflowRun.id == fence.workflow_run_id,
+                WorkflowRun.prompt_request_id == fence.prompt_request_id,
+                WorkflowRun.execution_token == fence.execution_token,
+                WorkflowRun.lease_expires_at > now,
+                WorkflowRun.status == phase,
+                WorkflowRun.state_revision == fence.state_revision,
+                WorkflowRun.completed_rounds == fence.completed_rounds,
+            )
+            .values(
+                completed_rounds=completed,
+                current_round=current,
+                status=next_phase,
+                state_revision=WorkflowRun.state_revision + 1,
+                final_version_id=best_version_id,
+                final_score=score,
+                qualified=qualified,
+            )
+        )
+        if terminal is not None:
+            statement = statement.values(
+                terminal_details=terminal,
+                stop_reason=terminal["termination_reason"],
+                error_code=terminal["error_code"],
+                finished_at=now,
+            )
+        return (
+            await self.session.scalar(
+                statement.returning(WorkflowRun.id).execution_options(synchronize_session=False)
+            )
+            is not None
+        )
+
+
+class EvaluationRepository:
+    """Version/Evaluation SQL only; callers validate and own the atomic transaction."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def for_critic(self, workflow_id: UUID, critic_id: UUID) -> Evaluation | None:
+        return await self.session.scalar(
+            select(Evaluation).where(
+                Evaluation.workflow_run_id == workflow_id,
+                Evaluation.critic_agent_run_id == critic_id,
+            )
+        )
+
+    async def next_version_number(self, request_id: UUID) -> int:
+        maximum = await self.session.scalar(
+            select(func.max(PromptVersion.version_number)).where(
+                PromptVersion.prompt_request_id == request_id
+            )
+        )
+        return 1 if maximum is None else maximum + 1
+
+    async def insert_version(self, row: PromptVersion) -> None:
+        self.session.add(row)
+        await self.session.flush()
+
+    async def insert_evaluation(self, row: Evaluation) -> None:
+        self.session.add(row)
+        await self.session.flush()
+
 
 class AgentRunRepository:
     def __init__(self, session: AsyncSession) -> None:
@@ -163,6 +253,15 @@ class AgentRunRepository:
                     select(AgentRun).where(
                         AgentRun.workflow_run_id == workflow_id, AgentRun.evaluation_round == number
                     )
+                )
+            ).all()
+        )
+
+    async def for_workflow(self, workflow_id: UUID) -> list[AgentRun]:
+        return list(
+            (
+                await self.session.scalars(
+                    select(AgentRun).where(AgentRun.workflow_run_id == workflow_id)
                 )
             ).all()
         )

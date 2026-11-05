@@ -31,3 +31,13 @@ The selector returns an existing completed round; no new evaluation is performed
 Selection/progress are implemented in M5D-3; the actual executor and persistence
 remain planned. See [policy contracts and limits](../optimization-policies.md).
 
+## Amendment — M5E-3C: durable selection and actual baseline lineage
+
+The internal persistence service reuses this unchanged selector over reconstructed,
+validated completed history. PromptVersion/Evaluation insertion, Critic completion,
+completed count and selected-best fields commit atomically. A revised version points
+to the PromptVersion underlying its validated baseline Evaluation, never implicitly
+to the latest inserted version. Later failures/clarification retain earlier history
+and selection. See [atomic persistence](../atomic-evaluation-persistence.md). This
+adds no optimizer execution hooks, background runner or public workflow API.
+

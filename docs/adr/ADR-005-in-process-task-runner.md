@@ -38,3 +38,14 @@ will still be FAILED with safe `interrupted` classification. This package adds s
 only: no TaskRunner, recovery, resumption or optimizer persistence hooks. The partial
 unique index excludes terminal states so a later explicit workflow can be requested.
 
+## Amendment — M5E-3C: internal atomic finalization
+
+Internal persistence now supports explicit fenced COMPLETED, FAILED and
+CLARIFICATION_REQUIRED transitions. Completed evaluations and the validated best
+selection survive later failure/clarification; these outcomes create no substitute
+version or quality score. Normal completion preserves actual qualification separately
+from execution status. Exact committed terminal results can be read for reconciliation
+after lease expiry with the same historical token; new writes still require a live
+claim and current revision. See [atomic persistence](../atomic-evaluation-persistence.md).
+No TaskRunner, optimizer dispatch, API activation, takeover or recovery is implemented.
+
