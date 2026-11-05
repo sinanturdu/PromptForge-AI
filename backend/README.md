@@ -12,6 +12,24 @@ diagnostics. FastAPI lifespan owns one provider and closes it on shutdown or fai
 initialization. No AI endpoint or automatic generation is active. See the
 [LLM setup, offline tests and limitations](app/llm/README.md).
 
+## Prompt Architect (M5B-2)
+
+`PromptArchitectAgent` is available as an in-memory consumer of the existing LLM
+gateway. It preserves already-effective prompts exactly, rewrites useful content
+through a sparse canonical model and deterministic renderer, or returns focused
+clarification questions. No public AI endpoint or automatic generation is activated.
+See [the agent contract, instruction version and offline tests](app/agents/README.md).
+
+The [M5B-3 prompt benchmark](benchmarks/README.md) adds 36 shared Turkish/English
+reference cases and an offline, content-free reporting command:
+`uv run python -m benchmarks.prompt_architect --report`. Objective contract findings
+remain separate from pending human quality review; no real-model calls are made.
+
+The [M5B-4 integration boundary](../docs/architect-service-integration.md) binds
+Architect output to existing request/run identities and distinguishes candidates
+from clarification. It documents future persistence/transaction rules; current
+prompt-request APIs and database behavior remain unchanged.
+
 ## Mevcut durum (Milestone 2A, 3A, 3B, 3C-1 & 3C-2 — Uygulandı)
 
 - `GET /api/v1/health` uç noktası ve otomatik OpenAPI dokümantasyonu (`/docs`, `/redoc`, `/api/v1/openapi.json`)
@@ -23,7 +41,7 @@ initialization. No AI endpoint or automatic generation is active. See the
 - Yapılandırılmış UTC JSON loglama (`app/core/logging.py`), sunucu taraflı `X-Request-ID` izleme ve HTTP gövde boyutu sınırı ara katmanları (`app/api/middleware.py`) ile merkezi RFC 9457 Problem Details hata yönetimi (`app/core/errors.py`, `app/api/error_handlers.py`)
 - pytest, Ruff ve `mypy --strict` doğrulama altyapısı
 
-> **Not (Planlanan Bileşenler):** İş akışı çalıştırma uç noktaları, `evaluations` / `criterion_scores` / `evaluation_issues` tabloları (Milestone 7) ve AI ajanları (`PromptEngineerAgent`, `PromptCriticAgent`) **henüz uygulanmamıştır**.
+> **Not (Planlanan Bileşenler):** İş akışı çalıştırma uç noktaları, `evaluations` / `criterion_scores` / `evaluation_issues` tabloları (Milestone 7) ve `PromptCriticAgent` **henüz uygulanmamıştır**. Planlanan `PromptEngineerAgent` üretim rolü, M5B-2'de `PromptArchitectAgent` adıyla uygulanmıştır.
 
 ---
 
