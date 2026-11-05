@@ -123,7 +123,7 @@ fails; merely asking for a progress decision must not consume it. Passing the sa
 key again returns `repeated_revision_attempt`. Helpers mutate neither registry nor
 history. They do not implement retries, concurrent dispatch exclusion or recovery.
 
-## Progress decisions and future M5D-4 use
+## Progress decisions and M5D-4 use
 
 `ProgressDecision` separates action (`revise`, `evaluate`, `stop`) from reason,
 selected baseline, proposed next completed round, optional private attempt key and
@@ -147,7 +147,7 @@ IDs. Bare `CandidateReady` is accepted for compatibility; it lacks revision evid
 and cannot itself prove which feedback was used. Prefer `RevisedCandidate` when
 available. Invalid/tampered inputs raise fixed `LLMError(INVALID_REQUEST)`.
 
-A future M5D-4 controller can:
+The [M5D-4 opt-in in-memory optimizer](prompt-optimizer.md) now performs this sequence:
 
 1. Run the existing initial single-pass boundary. Handle clarification separately;
    append round 1 only after a valid completed evaluation.
@@ -159,11 +159,12 @@ A future M5D-4 controller can:
    Route clarification separately; retain the prior baseline for unchanged output.
 4. Independently evaluate an advised new candidate, construct `EvaluatedCandidate`,
    and append a new validated round with its available revision provenance. Re-select
-   from the whole history. This sequence is documentation, not an implemented loop.
+   from the whole history. General policy helpers still execute no agents themselves.
 
 Failed/cancelled dispatches must not be retried indefinitely because history did
-not grow. Future execution state must bound dispatches, deadlines and transport
-work separately. Gateway retries do not create completed rounds. ADR-003's cap and
+not grow. M5D-4 bounds dispatches and the overall deadline and returns failed execution
+on expected errors; durable execution state remains future work. Gateway retries do
+not create completed rounds. ADR-003's cap and
 ADR-005's failure/interruption lifecycle remain in force.
 
 ## Privacy, persistence and verification

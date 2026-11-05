@@ -14,3 +14,18 @@
 
 - Harici mesaj kuyruğu olmadan güvenli asenkron yürütme sağlanır; ölçek gerektiğinde `TaskRunner` arkasından harici kuyruğa geçilebilir.
 
+## Amendment — M5D-4: failed execution with retained evaluations
+
+The earlier workflow diagram in architecture section 7.5 described later-round
+errors as `COMPLETED/error_partial`. That draft behavior is explicitly superseded:
+an expected later Architect/Critic/validation/deadline failure means failed
+execution, while earlier completed evaluations and their best selection remain
+available. Retaining a candidate does not make execution successful or approve
+its quality. Failure before the first completion has no selected candidate.
+
+M5D-4 implements this policy only in the opt-in in-memory optimizer, running in the
+caller task. External cancellation propagates unchanged. It adds no background
+TaskRunner, recovery process, persistent status or API. The original planned
+interrupted-run policy remains FAILED (`interrupted`) when persistence and a runner
+are introduced. See [optimizer behavior and persistence gaps](../prompt-optimizer.md).
+

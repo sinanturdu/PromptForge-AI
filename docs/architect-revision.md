@@ -133,8 +133,8 @@ The agent logs no content. Fingerprints and supplied relationships are not secur
 credentials; later persistence must verify real ownership/state transactionally.
 
 [M5D-3 selection/progress rules](optimization-policies.md) now provide completed
-history, best-baseline selection and pure guards. M5D-4 can use them to evaluate
-revised candidates under the three-round cap; that executor is not implemented.
+history, best-baseline selection and pure guards. The [M5D-4 in-memory optimizer](prompt-optimizer.md)
+now uses them to evaluate revised candidates under the configurable three-round cap.
 The M5D-2 operation itself still owns no selection or workflow policy. No API,
 persistence, migration, frontend, dependency or multimodal/REA feature changes.
 
