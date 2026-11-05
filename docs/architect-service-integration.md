@@ -185,3 +185,8 @@ execution fields are excluded from ordinary handoff representations. Explicit
 model dumps, Critic inputs and structured validation details still contain private
 content; they are not diagnostic payloads. These checks establish integration
 contracts, not semantic prompt quality or verified database existence.
+
+M5C-4 adds the opt-in [Architect -> Critic single pass](architect-critic-pass.md).
+It reuses this handoff and clarification contract, binds the exact Critic input and
+returns a validated evaluated candidate with independent scoring. This helper's
+existing API, transaction responsibilities and absence of persistence are unchanged.

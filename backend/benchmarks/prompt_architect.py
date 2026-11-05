@@ -5,7 +5,6 @@ import asyncio
 import hashlib
 import json
 from collections import Counter
-from pathlib import Path
 from typing import Literal
 
 from pydantic import ValidationError
@@ -21,6 +20,7 @@ from app.llm.schemas import GatewayPolicy, LLMModel, LLMResponse, ModelSettings
 from app.modules.prompts.canonical import CanonicalPrompt
 from app.modules.prompts.rendering import GenericPromptRenderer
 from benchmarks.architect_cases import BenchmarkCase, BenchmarkDataset, load_dataset
+from benchmarks.reporting import REPORT_DIRECTORY, write_report
 
 Criterion = Literal[
     "intent_fidelity",
@@ -42,7 +42,6 @@ CRITERIA: tuple[Criterion, ...] = (
     "decision_suitability",
     "task_suitability",
 )
-REPORT_DIRECTORY = Path(__file__).resolve().parents[1] / "benchmark-reports"
 
 
 class Finding(LLMModel):
@@ -304,19 +303,11 @@ def main() -> int:
     finally:
         gateway_logger.disabled = previous_gateway_disabled
     if args.report:
-        # Fixed generated-only location; never accept arbitrary prompt/.env output paths.
-        directory = REPORT_DIRECTORY.resolve()
-        if directory != REPORT_DIRECTORY.absolute() or directory.is_symlink():
-            print("Benchmark report directory must not be redirected.")
-            return 1
-        destination = directory / "prompt-architect-offline.json"
-        if destination.is_symlink():
-            print("Benchmark report file must not be redirected.")
-            return 1
         try:
-            directory.mkdir(exist_ok=True)
-            destination.write_text(report.model_dump_json(indent=2) + "\n", encoding="utf-8")
-        except OSError:
+            write_report(
+                REPORT_DIRECTORY, "prompt-architect-offline.json", report.model_dump_json(indent=2)
+            )
+        except (OSError, ValueError):
             print("Benchmark report could not be written.")
             return 1
     print(json.dumps(summary(report), sort_keys=True))

@@ -1,4 +1,9 @@
-# Prompt Architect benchmark — M5B-3
+# Offline prompt benchmarks — Architect M5B-3 and Critic M5C-3
+
+The Critic benchmark reuses this package, human-review criteria and shared report
+writer. Run `uv run python -m benchmarks.prompt_critic --report` for 36 scenarios /
+43 fake-only probes. See [Critic dataset, interpretation and future calibration](../../docs/critic-benchmark.md).
+All semantic verdicts remain pending. The Architect benchmark below is unchanged.
 
 This is a development evaluation foundation, not a production score or independent
 Prompt Critic. Software contracts and semantic prompt quality are reported separately.

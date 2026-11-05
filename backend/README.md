@@ -30,6 +30,11 @@ Architect output to existing request/run identities and distinguishes candidates
 from clarification. It documents future persistence/transaction rules; current
 prompt-request APIs and database behavior remain unchanged.
 
+The [M5C-4 single-pass boundary](../docs/architect-critic-pass.md) connects Architect,
+blind Critic and deterministic scoring in memory. Clarification stops immediately;
+evaluated candidates retain separate content, findings and execution metadata.
+No public API activation, workflow loop or persistence is introduced.
+
 ## Mevcut durum (Milestone 2A, 3A, 3B, 3C-1 & 3C-2 — Uygulandı)
 
 - `GET /api/v1/health` uç noktası ve otomatik OpenAPI dokümantasyonu (`/docs`, `/redoc`, `/api/v1/openapi.json`)
@@ -41,7 +46,7 @@ prompt-request APIs and database behavior remain unchanged.
 - Yapılandırılmış UTC JSON loglama (`app/core/logging.py`), sunucu taraflı `X-Request-ID` izleme ve HTTP gövde boyutu sınırı ara katmanları (`app/api/middleware.py`) ile merkezi RFC 9457 Problem Details hata yönetimi (`app/core/errors.py`, `app/api/error_handlers.py`)
 - pytest, Ruff ve `mypy --strict` doğrulama altyapısı
 
-> **Not (Planlanan Bileşenler):** İş akışı çalıştırma uç noktaları, `evaluations` / `criterion_scores` / `evaluation_issues` tabloları (Milestone 7) ve `PromptCriticAgent` **henüz uygulanmamıştır**. Planlanan `PromptEngineerAgent` üretim rolü, M5B-2'de `PromptArchitectAgent` adıyla uygulanmıştır.
+> **Not:** İş akışı çalıştırma uç noktaları ve `evaluations` / `criterion_scores` / `evaluation_issues` tabloları henüz uygulanmamıştır. Üretim rolü M5B'de `PromptArchitectAgent` olarak; bağımsız `PromptCriticAgent` ve deterministik `ScoringEngine` M5C-2'de bellek içi bileşenler olarak uygulanmıştır. Mevcut API bunları otomatik çağırmaz. Sözleşmeler, rubric 2.0.0 ve sınırlar: [Critic tasarımı](../docs/prompt-critic.md).
 
 ---
 
@@ -275,12 +280,12 @@ Merkezi hata yakalayıcılar (`app/api/error_handlers.py`) tüm HTTP hataların�
 - İstek hız sınırlama (rate limiting), dağıtık izleme (OpenTelemetry/Sentry) ve kullanıcı kimlik doğrulama ilk MVP M3C-2 kapsamı dışındadır (`ADR-008`).
 - Kayıt silme veya geçmiş prompt isteklerini düzenleme uç noktaları bu aşamada kapsam dışıdır.
 - Değerlendirme tabloları (`evaluations`, `criterion_scores`, `evaluation_issues`) henüz oluşturulmamıştır (Milestone 7 kapsamında eklenecektir).
-- Henüz gerçek veya sahte (`FakeLLMProvider`) LLM yürütmesi, `CanonicalPrompt` derleyicileri veya otomatik revizyon döngüsü uygulanmamıştır.
+- LLMGateway, sağlayıcılar, Architect, CanonicalPrompt/GenericPromptRenderer ve bağımsız Critic/ScoringEngine uygulanmıştır; otomatik revizyon döngüsü ve ajan sonuçlarının kalıcılığı planlanmaktadır. Ayrı yetkilendirme olmadan gerçek model çağrıları/testleri çalıştırılmaz.
 
 ### Gelecek Genişleme Noktaları
 
 - **Milestone 4 (Planlandı):** Frontend yönlendirme, API istemcisi (`X-Request-ID` ve Problem Details uyumlu), TanStack Query ve prompt gönderim formu.
-- **Milestone 5–6 (Planlandı):** `AgentRun` kayıtlarını dolduran `LLMGateway`, `PromptEngineerAgent` ve iş akışı başlatma uç noktaları (`workflow_run_id` ve `agent_name` log alanlarının aktif kullanımıyla).
+- **Sonraki entegrasyon:** Mevcut LLMGateway ve ajanların workflow/AgentRun kalıcılığına bağlanması ve iş akışı başlatma uç noktaları (`workflow_run_id` ve `agent_name` log alanlarının aktif kullanımıyla).
 - **Milestone 7 (Planlandı):** Yeni bir Alembic revizyonu ile `evaluations`, `criterion_scores` ve `evaluation_issues` tablolarının eklenmesi.
 - **Post-MVP PostgreSQL Geçişi:** Lehçeden bağımsız şema ve `env.py` yapısı sayesinde `postgresql+asyncpg://...` bağlantı dizesiyle doğrudan PostgreSQL üzerinde göç çalıştırabilme.
 
