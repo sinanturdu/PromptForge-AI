@@ -1,5 +1,9 @@
 # Frontend workflow foundation — M5F-4A
 
+For reproducible installation and operation, use [Windows local setup](local-mvp-setup.md)
+and the [configuration/security reference](local-mvp-operations.md). This guide owns
+the frontend transport contract; the current application includes the M5F-4B/C/D UI.
+
 M5F-4D adds [trusted results, Critic details and on-demand comparison](frontend-workflow-results.md)
 inside the selected workflow monitor. Sensitive result/history content is requested only
 through that explicit view, not by ordinary progress polling. The local security boundary
@@ -19,8 +23,8 @@ React 19 / Vite 8 / strict TypeScript use BrowserRouter (`/`, `/history`,
 `/prompt-requests/:id`), the existing AppLayout/navigation, Tailwind/custom UI components,
 and one AppProviders-owned TanStack Query client. There is no installed shadcn component
 library to activate. NewPromptPage, PromptHistoryPage and PromptRequestDetailPage keep
-their existing save/read behavior. No optimization button, progress/result screen,
-automatic workflow creation or provider invocation is connected to those pages.
+their existing save/read behavior. M5F-4B/C/D add explicit creation/start, progress
+and result views; saving still never automatically creates or starts a workflow.
 
 `src/features/workflows/` follows the existing feature layout. It borrows the existing
 PromptRequest record type and QueryClient; it does not add a router, provider framework,
@@ -58,22 +62,15 @@ override workflow API no-store/security headers. No service worker is introduced
 
 ## Build and run locally
 
-Use already installed dependencies and the qualified private environment. First choose
-an **existing migrated disposable/non-development database**; provisioning/migration
-remains a separate explicit operator action. Never use backend/data/promptforge.db.
-From the repository root in PowerShell:
+Complete [setup](local-mvp-setup.md) first; it defines the exact `$backendPython`,
+new migrated `$dbPath` and trusted `$frontendDist`. Never use backend/data/promptforge.db.
+In that same PowerShell session, from `backend/`:
 
 ```powershell
-$env:VITE_API_BASE_URL = ''
-npm --prefix frontend run build
-$taskPython = 'C:\Users\sinan\AppData\Local\PromptForge\sqlite-qualification\backend-venv\Scripts\python.exe'
 $env:WORKFLOW_API_ENABLED = 'true'
 $env:WORKFLOW_EXECUTION_ENABLED = 'true'
 $env:LLM_PROVIDER = 'fake'
-Push-Location backend
-try {
-  & $taskPython -m app.core.execution_startup --database 'C:\path\to\existing-disposable.db' --architect-model fake --critic-model fake --frontend-dist '..\frontend\dist' --host 127.0.0.1 --port 8000
-} finally { Pop-Location }
+& $backendPython -m app.core.execution_startup --database $dbPath --architect-model fake --critic-model fake --frontend-dist $frontendDist --host 127.0.0.1 --port 8000
 ```
 
 Open http://127.0.0.1:8000 (use the same host spelling, scheme and port for browser/API).
@@ -125,10 +122,11 @@ workflow with a retained candidate into a successful workflow.
 
 queries.ts supplies reusable query/mutation options, not mounted hooks/screens. Keys
 separate parent/cursor pages, progress, metadata, sensitive content and result scopes.
-Read functions consume the supplied cancellation signal. Inactive data has gcTime=0;
-there is no persisted cache or console content logging. Default polling/retries/focus
-refetch are off. A pure interval helper is available for a future mounted progress
-screen and stops on terminal/inconsistent state; no observer/timer exists globally.
+Read functions consume the supplied cancellation signal. Inactive read data has gcTime=0;
+the small content-integrity revocation record instead lasts for the QueryClient session.
+There is no persisted cache or console content logging. Default polling/retries/focus
+refetch are off. Only the selected visible progress screen opts into the interval
+helper; it stops on terminal/inconsistent/error state. No observer/timer exists globally.
 
 Create success invalidates the parent's workflow lists. Start acceptance invalidates
 that workflow's scopes and its parent's lists. POST retry is explicitly false, even
@@ -170,10 +168,10 @@ the original 16 Vite/isolated-backend E2E tests are retained.
 
 The npm E2E/UI scripts build first through pretest hooks, including in existing CI;
 direct `npx playwright test` requires a prior build. Windows local qualification can
-select the existing private runtime:
+select the qualified exact interpreter chosen in setup (repository root):
 
 ```powershell
-$env:PROMPTFORGE_E2E_PYTHON = 'C:\Users\sinan\AppData\Local\PromptForge\sqlite-qualification\backend-venv\Scripts\python.exe'
+$env:PROMPTFORGE_E2E_PYTHON = $backendPython
 npm --prefix frontend run test:e2e
 ```
 
@@ -183,7 +181,7 @@ test backend forces both workflow flags off even if inherited; the new SPA test 
 the production verified startup with scripted fake composition and its own disposable
 database/port. Neither test uses the development database or real provider credentials.
 
-M5F-4B now supplies creation/start controls; M5F-4C/4D still own progress polling UX and results presentation.
+M5F-4B supplies creation/start controls; M5F-4C/4D supply progress polling and results.
 One trusted local process/instance remains mandatory. Public deployment, proxies,
 containers, additional listeners, authentication, durable delivery/replay and real-model
 quality are not qualified by these offline tests. No existing optimizer, migration,

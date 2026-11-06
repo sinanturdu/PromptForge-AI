@@ -1,5 +1,12 @@
 # ADR-005: Süreç İçi Arka Plan Görev Yürütücüsü (`InProcessTaskRunner`)
 
+> **Current implementation clarification (M5F):** the earlier automatic startup
+> FAILED/interrupted proposal is superseded by the M5E-5 read-only recovery boundary.
+> The actual runner is WorkflowExecutionSupervisor with explicit owned-listener startup,
+> not an automatically activated InProcessTaskRunner. Unknown work is never replayed
+> or mutated on startup. See [supervision](../execution-supervisor.md) and
+> [readback/recovery](../workflow-readback-recovery.md).
+
 - **Durum:** Onaylandı (Planlanan uygulama: Milestone 6)
 
 ## Bağlam

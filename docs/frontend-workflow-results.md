@@ -128,8 +128,22 @@ Existing Query keys keep progress, metadata, content and result separate and sco
 to workflow/parent. Progress remains the only two-second polling owner. Result/content
 reads have the existing **10-second deadline**, consume AbortSignal and have no retry,
 focus/reconnect refetch or interval. Successful content stays in memory while the
-view needs it; inactive queries use `gcTime: 0`. No browser persistence adapter is used.
+view needs it; inactive read queries use `gcTime: 0`. No browser persistence adapter is used.
 Existing create/start invalidations remain scoped to the same workflow/parent keys.
+
+M5F-5A's independent-review correction stores content-integrity revocation in a tiny
+normalized parent/workflow QueryClient record (flag/revision only, infinite GC lifetime,
+no network function/timer). Synchronous subscription withdraws approval before paint.
+It survives closing/reopening results, parent remount and switching away/back; another
+workflow is unaffected. Only an explicit new successful terminal-result GET passing
+existing relationship/contract validation clears the same observed revocation.
+The Query data-update counter rejects cancellation returning reverted cached data;
+an older pending success also cannot erase a newer integrity observation. Failed,
+pending, timed-out, malformed, metadata/progress and other-workflow reads do not clear it.
+Recovery closes and evicts the rejected content history; the next explicit load fetches
+an actual new snapshot. Browser reload discards private caches/guards and queries the
+backend again. No disk/cross-tab guard or automatic repair/replay is introduced.
+See the [P1 audit evidence](m5f-security-regression-audit.md).
 
 409 `workflow_not_terminal` is a not-ready explanation, not a persisted failure.
 409 `workflow_integrity_inconsistent` explicitly withholds trusted content/copying.
@@ -156,13 +170,17 @@ metadata/content separation, scoped/late responses, timeout/cancellation, malfor
 responses, HTTP errors, integrity precedence, privacy and read-only retries. Existing
 creation and polling suites remain regression requirements.
 
-Eight Chromium scenarios use real FastAPI, migrated disposable databases and controlled
+The original M5F-4D Chromium scenarios use real FastAPI, migrated disposable databases and controlled
 fake providers: desktop/mobile qualified results and clipboard/comparison/reload;
 not-qualified earlier-version selection and two-version comparison; unassessable early
 completion; switching to another workflow; failed and clarification results; and
 integrity rejection with actual evaluation metadata retained. Long unbroken/multiline
 text is included. The integrity fixture clears one selection pointer only in its owned
 temporary database, using the qualified private Python. It adds no HTTP control route.
+M5F-5A adds content-history revocation and retained-cache remount/recovery cases; the
+current run counts are dated in the [release checklist](local-mvp-release-checklist.md).
+The restoration helper models external repair only in that owned disposable fixture;
+it is not an application repair mechanism.
 
 These tests establish contracts and UI behavior, not real-model quality or exactly-once
 provider billing. General deployment, recovery execution, clarification editing,

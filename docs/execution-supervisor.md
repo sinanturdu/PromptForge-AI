@@ -18,16 +18,14 @@ connects it to the owned server handoff. There is no provider call during startu
 
 ## Explicit local startup
 
-From backend/, using the approved private Python environment, an operator may explicitly
-start the internal runner against an **existing, already migrated, non-development**
-SQLite file:
+Follow [Windows setup](local-mvp-setup.md) to install/qualify the exact interpreter and
+create a new migrated non-development file. From `backend/` in that setup session:
 
 ```powershell
-$taskPython = 'C:\Users\sinan\AppData\Local\PromptForge\sqlite-qualification\backend-venv\Scripts\python.exe'
 $env:WORKFLOW_API_ENABLED = 'true'
 $env:WORKFLOW_EXECUTION_ENABLED = 'true'
 $env:LLM_PROVIDER = 'fake'
-& $taskPython -m app.core.execution_startup --database 'C:\path\to\approved-existing.db' --architect-model fake --critic-model fake --host 127.0.0.1 --port 8000
+& $backendPython -m app.core.execution_startup --database $dbPath --architect-model fake --critic-model fake --host 127.0.0.1 --port 8000
 ```
 
 This example is documentation, not a command executed against a user database by
@@ -179,7 +177,7 @@ M5F-3C now provides creation/start POST routes and HTTP acceptance/idempotency s
 The owner exposes the same persistence service used by the supervisor only after
 activation; request dependencies never dispose it. The supervisor's check_environment
 is also used for creation authority, on the owning loop. No execution policy changes.
-Frontend integration remains future work.
+Frontend integration is implemented in M5F-4A/B/C/D; see [same-origin setup](frontend-workflow-integration.md).
 Linux deployment qualification and actual provider behavior must be verified in their
 own approved environment; local fake tests prove sequencing/contracts, not live model
 quality, power-loss durability or guaranteed remote cancellation.

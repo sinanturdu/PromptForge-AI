@@ -12,7 +12,8 @@ startup and supervision; M5F-3C connects exactly two POST routes to those resour
 Both flags default off. GETs require the API flag; POST registration requires both
 flags, and every POST additionally requires the live verified local startup owner.
 Ordinary startup cannot create workflows or execute them, even with both flags true.
-No automatic recovery, database migration/provisioning or frontend activation is added.
+No automatic recovery or database migration/provisioning is added. M5F-4A/B/C/D now
+provide the same-origin frontend; [local setup](local-mvp-setup.md) owns current installation.
 
 The current `main.py` lifespan owns one lazy ordinary DatabaseSessionManager and
 one provider/gateway through AsyncExitStack. The ordinary SQLite connection hook
@@ -22,7 +23,7 @@ Before M5F-2 only `/health` and PromptRequest create/get/list routes were availa
 Their behavior remains unchanged. Existing frontend pages/MSW and the original 16
 Playwright tests retain those PromptRequest contracts. M5F-4A adds a separate built-SPA
 browser test using explicit workflow API calls, the verified listener and scripted fake
-provider; it activates no workflow UI or real-model call.
+provider; later M5F-4B/C/D add explicit workflow UI, not real-model qualification.
 
 M5E provides the necessary internal behavior:
 
@@ -339,22 +340,20 @@ Do not fabricate FAILED, renew an expired claim, rotate a token or reissue a pai
 Lease duration must exceed the whole bounded gateway operation plus persistence margin;
 M5E renews only between operations and rejects late writes with stale fences.
 
-Clients poll progress about every two seconds, with one request in flight, backoff on
-transient errors/429 and a stop on COMPLETED/FAILED/CLARIFICATION_REQUIRED. Polling never
+The implemented UI polls progress about every two seconds with one request in flight,
+stops on read errors until manual refresh, and stops on COMPLETED/FAILED/CLARIFICATION_REQUIRED. Polling never
 starts work or authorizes recovery. Fetch sensitive history/result only explicitly.
 
 ### Local fake-provider HTTP example
 
-Use the approved private Python 3.12.16 environment. Before starting, independently
-provision/migrate a **disposable non-development** database; startup/HTTP never does
-this for you. Do not point these examples at backend/data/promptforge.db. From backend/:
+Complete [Windows setup](local-mvp-setup.md), which defines `$backendPython` and a new
+migrated `$dbPath`. Do not target backend/data/promptforge.db. From `backend/` in that session:
 
 ```powershell
-$taskPython = 'C:\Users\sinan\AppData\Local\PromptForge\sqlite-qualification\backend-venv\Scripts\python.exe'
 $env:WORKFLOW_API_ENABLED = 'true'
 $env:WORKFLOW_EXECUTION_ENABLED = 'true'
 $env:LLM_PROVIDER = 'fake'
-& $taskPython -m app.core.execution_startup --database 'C:\path\to\existing-disposable.db' --architect-model fake --critic-model fake --host 127.0.0.1 --port 8000
+& $backendPython -m app.core.execution_startup --database $dbPath --architect-model fake --critic-model fake --host 127.0.0.1 --port 8000
 ```
 
 In a second local shell, create a PromptRequest using the unchanged existing API,
@@ -365,10 +364,10 @@ accepted in these workflow bodies:
 $base = 'http://127.0.0.1:8000/api/v1'
 $source = Invoke-RestMethod -Method Post -Uri "$base/prompt-requests" -ContentType 'application/json' -Body '{"raw_prompt":"Translate Merhaba into English."}'
 $createBody = '{"client_idempotency_key":"demo-run-001","max_evaluation_rounds":3}'
-$created = Invoke-WebRequest -Method Post -Uri "$base/prompt-requests/$($source.id)/runs" -ContentType 'application/json' -Body $createBody
+$created = Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$base/prompt-requests/$($source.id)/runs" -ContentType 'application/json' -Body $createBody
 $run = ($created.Content | ConvertFrom-Json).workflow
 # First create: 201; repeat the exact URL/body: 200, same run ID.
-$accepted = Invoke-WebRequest -Method Post -Uri "$base/runs/$($run.id)/execution" -ContentType 'application/json' -Body '{"expected_revision":0}'
+$accepted = Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$base/runs/$($run.id)/execution" -ContentType 'application/json' -Body '{"expected_revision":0}'
 # 202 means task accepted. Follow its Location to authoritative progress.
 Invoke-RestMethod -Uri "$base/runs/$($run.id)"
 # Once terminal, explicitly retrieve sensitive content:
@@ -403,8 +402,9 @@ diagnostic as permission to replay. No automatic replay/resume is implemented.
   concurrent keyed creation, duplicate/capacity rejection, three-round completion,
   truthful quality/clarification/failure, fencing failure, disconnect/cancellation,
   shutdown and transport/JSON/error/privacy behavior. Prior GET contracts stay intact.
-- **Later:** frontend integration, public authentication and durable delivery are
-  separate designs. A durable start-admission acknowledgment would require additional
+- **Current frontend:** M5F-4A/B/C/D implement explicit same-origin workflow controls,
+  polling and results. Public authentication and durable delivery remain separate designs.
+  A durable start-admission acknowledgment would require additional
   schema/lifecycle work; no queue, crash replay or exactly-once billing is claimed.
 
 Verification uses the existing approved private runtime, fake providers and temporary

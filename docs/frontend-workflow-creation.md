@@ -84,7 +84,8 @@ the actual winner.
 stored lifecycle state and an integrity/uncertainty warning where needed. It never
 starts work, renews a lease, takes over, repairs records or fetches content history.
 The read contract does not expose lease expiry, so the UI does not invent that diagnosis.
-There is no polling, live progress chart, quality verdict or detailed result rendering.
+This status-inspection action does not poll or render detailed results. The separate
+M5F-4C monitor polls safely; M5F-4D owns explicit result/history viewing.
 
 ## API integration and availability
 
@@ -123,7 +124,7 @@ Linux TIME_WAIT rebinding when multiple same-origin cases run sequentially witho
 changing production socket policy or adding delays/retries. Runtime, identity and
 exclusive listener checks remain in place. The original E2E assertions are retained.
 
-M5F-4C now supplies live progress/polling UX; M5F-4D still owns detailed results/history. Exact
+M5F-4C supplies live progress/polling UX; M5F-4D supplies detailed results/history. Exact
 capability discovery, public/multi-user deployment, durable HTTP delivery and automatic
 recovery/replay remain outside this package. Offline fake tests establish contract and
 interaction behavior, not model quality or exactly-once external billing.

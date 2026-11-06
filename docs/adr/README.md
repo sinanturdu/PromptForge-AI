@@ -2,7 +2,11 @@
 
 Bu dizin, PromptForge AI mimarisinde onaylanan temel tasarım kararlarını içerir. Ayrıntılı sistem tasarımı için [`../architecture.md`](../architecture.md) dokümanına bakınız.
 
-> **Not:** Kararların "Onaylandı" durumunda olması mimari tasarımın kabul edildiğini gösterir; her kararın kod düzeyinde uygulanacağı aşama ilgili ADR içinde belirtilmiştir. Şu anda **Milestone 2A**, **Milestone 3A** ve **Milestone 3B** tamamlanmıştır.
+> **Current implementation:** approved ADRs record design decisions, not deployment
+> qualification. The [current architecture](../architecture.md) inventories completed
+> M5A–M5F agents, persistence, supervised execution and UI. Older milestone labels
+> below are historical plans; later amendments and current contracts take precedence.
+> Target-specific renderers, REA and public deployment remain unimplemented.
 
 | ADR | Başlık | Uygulama Aşaması |
 |---|---|---|
