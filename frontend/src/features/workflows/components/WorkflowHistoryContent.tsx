@@ -1,4 +1,6 @@
+import { useLayoutEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { WorkflowClientError } from '../errors'
 import { workflowContentQuery } from '../queries'
 import { trustworthyMetadata } from '../readValidation'
 import { EvaluationPanel } from './EvaluationPanel'
@@ -6,12 +8,20 @@ import { PromptComparison } from './PromptComparison'
 import { readButton } from './resultStyles'
 import { WorkflowReadError } from './WorkflowReadError'
 
-export function WorkflowHistoryContent({ workflowId, parentId, selectedVersionId }: {
+export function WorkflowHistoryContent({ workflowId, parentId, selectedVersionId, onIntegrityFailure }: {
   readonly workflowId: string; readonly parentId: string; readonly selectedVersionId?: string | null
+  readonly onIntegrityFailure: () => void
 }) {
   const query = useQuery(workflowContentQuery(workflowId, parentId))
   const content = !query.isError && !query.isFetching ? query.data : undefined
   const trusted = content && trustworthyMetadata(content.metadata)
+  const integrityFailed = Boolean(query.data && !trustworthyMetadata(query.data.metadata)) ||
+    (query.error instanceof WorkflowClientError && query.error.errorCode === 'workflow_integrity_inconsistent')
+  useLayoutEffect(() => {
+    // Before paint, revoke older approval in the shared workflow-scoped record.
+    // Neither this content panel nor its parent owns the revocation lifetime.
+    if (integrityFailed) onIntegrityFailure()
+  }, [integrityFailed, onIntegrityFailure])
   return <div className="min-w-0 space-y-5 border-t border-slate-700 pt-5">
     <WorkflowReadError title="Geçmiş içeriği okunamadı" error={query.error} />
     {query.isFetching ? <p role="status" className="text-sm text-slate-400">Prompt sürümleri ve değerlendirmeler okunuyor...</p> : null}

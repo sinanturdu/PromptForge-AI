@@ -231,6 +231,35 @@ async def test_concurrent_identical_creation_is_one_record(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("after_commit", [False, True])
+async def test_lost_creation_acknowledgment_preserves_idempotent_retry(
+    http_env: HTTPHarness, monkeypatch: pytest.MonkeyPatch, after_commit: bool
+) -> None:
+    env = http_env
+    original = env.persistence.create_workflow
+    committed: list[WorkflowCreation] = []
+
+    async def lost(*args: Any, **kwargs: Any) -> WorkflowCreation:
+        if after_commit:
+            committed.append(await original(*args, **kwargs))
+        raise PersistenceError("unavailable")
+
+    before = dump(env.db)
+    monkeypatch.setattr(env.persistence, "create_workflow", lost)
+    protected(await env.create(), 503)
+    if not after_commit:
+        assert dump(env.db) == before
+    monkeypatch.setattr(env.persistence, "create_workflow", original)
+    replay = protected(await env.create(), 200 if after_commit else 201)
+    if after_commit:
+        assert replay["workflow"]["id"] == str(committed[0].workflow.id)
+        assert replay["replayed"]
+    assert len((await env.db.readback.list_workflows(env.db.source.id)).items) == 1
+    assert not (await env.db.readback.read(UUID(replay["workflow"]["id"]))).operations
+    assert env.provider.calls == 0
+
+
+@pytest.mark.anyio
 async def test_create_start_poll_and_three_round_result(http_env: HTTPHarness) -> None:
     env = http_env
     workflow = await env.workflow()

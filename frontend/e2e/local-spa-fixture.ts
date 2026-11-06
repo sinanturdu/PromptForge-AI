@@ -9,7 +9,8 @@ import { randomUUID } from 'node:crypto'
 import { test as base, expect } from '@playwright/test'
 
 interface LocalSpa { readonly origin: string; readonly operationCount: () => number; readonly release: () => void
-  readonly invalidateSelection: (workflowId: string) => Promise<void> }
+  readonly invalidateSelection: (workflowId: string) => Promise<void>
+  readonly restoreSelection: (workflowId: string, versionId: string) => Promise<void> }
 export const test = base.extend<{ localSpa: LocalSpa; spaScenario: 'early' | 'three-round' | 'failed' | 'clarify' | 'not-qualified' | 'unassessable'; spaControlled: boolean }>({
   spaScenario: ['early', { option: true }],
   spaControlled: [false, { option: true }],
@@ -46,17 +47,19 @@ export const test = base.extend<{ localSpa: LocalSpa; spaScenario: 'early' | 'th
         try { return (await (await probe.get(`${origin}/api/v1/health`, { timeout: 1000 })).json()).service }
         catch { return null }
       }, { timeout: 30_000 }).toBe(service)
+      async function setSelection(workflowId: string, versionId: string | null) {
+        // Test-only corruption/restoration in this fixture's owned disposable DB.
+        // This is operator fixture setup, never an application repair endpoint.
+        await promisify(execFile)(python, ['-c', [
+          'import sqlite3, sys', 'from uuid import UUID',
+          'version = None if sys.argv[3] == "none" else UUID(sys.argv[3]).hex',
+          'with sqlite3.connect(sys.argv[1]) as connection:',
+          '    changed = connection.execute("UPDATE workflow_runs SET final_version_id = ? WHERE id = ? AND status = ?", (version, UUID(sys.argv[2]).hex, "COMPLETED"))',
+          '    assert changed.rowcount == 1, "Expected one completed disposable workflow."',
+        ].join('\n'), path.join(temporary, 'e2e.sqlite3'), workflowId, versionId ?? 'none'], { windowsHide: true })
+      }
       await provide({ origin: origin!, operationCount: () => operations, release: () => { api.stdin.write('release\n') },
-        invalidateSelection: async workflowId => {
-          // Test-only corruption of this fixture's owned disposable database. No
-          // application route, repair action or development database is involved.
-          await promisify(execFile)(python, ['-c', [
-            'import sqlite3, sys', 'from uuid import UUID',
-            'with sqlite3.connect(sys.argv[1]) as connection:',
-            '    changed = connection.execute("UPDATE workflow_runs SET final_version_id = NULL WHERE id = ? AND status = ?", (UUID(sys.argv[2]).hex, "COMPLETED"))',
-            '    assert changed.rowcount == 1, "Expected one completed disposable workflow."',
-          ].join('\n'), path.join(temporary, 'e2e.sqlite3'), workflowId], { windowsHide: true })
-        } })
+        invalidateSelection: workflowId => setSelection(workflowId, null), restoreSelection: setSelection })
     } finally {
       await probe.dispose()
       api.stdin.end()

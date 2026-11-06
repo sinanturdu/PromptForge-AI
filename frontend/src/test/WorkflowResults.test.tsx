@@ -1,26 +1,47 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { QueryObserver } from '@tanstack/react-query'
 import { AppProviders } from '../app/providers'
 import { WorkflowMonitor } from '../features/workflows/components/WorkflowMonitor'
 import { criterionLabels } from '../features/workflows/evaluationLabels'
+import { workflowContentQuery, workflowKeys, workflowResultQuery } from '../features/workflows/queries'
+import { readResultIntegrity, revokeResultIntegrity } from '../features/workflows/resultIntegrity'
 import { createTestQueryClient } from './renderWithApp'
-import { DATE, PARENT, PRIVATE, RUN, VERSION } from './workflowFixtures'
-import { ORIGINAL, OTHER_RUN, RENDERED, resultFixture } from './workflowResultFixtures'
+import { DATE, EVALUATION, PARENT, PRIVATE, RUN, VERSION } from './workflowFixtures'
+import { CREATOR, CRITIC, ORIGINAL, OTHER_RUN, RENDERED, resultFixture } from './workflowResultFixtures'
 
 let fixture: ReturnType<typeof resultFixture>
 let fetcher: ReturnType<typeof vi.fn>
 let clipboard: ReturnType<typeof vi.fn>
 const clients: ReturnType<typeof createTestQueryClient>[] = []
+const retainedObservers: (() => void)[] = []
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), {
   status, headers: { 'Content-Type': status < 400 ? 'application/json' : 'application/problem+json' },
 })
 async function tick(ms = 1) { await act(async () => { await vi.advanceTimersByTimeAsync(ms) }) }
-function view(url = `?workflow=${RUN}&view=result`) {
-  const client = createTestQueryClient(); clients.push(client)
+function view(url = `?workflow=${RUN}&view=result`, client = createTestQueryClient()) {
+  if (!clients.includes(client)) clients.push(client)
   return render(<AppProviders queryClient={client}><MemoryRouter initialEntries={[`/prompt-requests/${PARENT}${url}`]}>
     <WorkflowMonitor parentId={PARENT} followDefault={false} />
   </MemoryRouter></AppProviders>)
+}
+function retainResult(client: ReturnType<typeof createTestQueryClient>, id = RUN) {
+  const observer = new QueryObserver(client, { ...workflowResultQuery(id, PARENT), enabled: false, gcTime: Infinity })
+  retainedObservers.push(observer.subscribe(() => {}))
+}
+function inconsistentHistory(failure: 'findings' | 'http_integrity') {
+  return failure === 'http_integrity' ? json({ status: 409, error_code: 'workflow_integrity_inconsistent' }, 409)
+    : json({ ...fixture.history, metadata: { ...fixture.history.metadata,
+      workflow: { ...fixture.history.metadata.workflow, selected: null, stored_best_version_id: null,
+        findings: [{ code: 'progress_selection', scope: 'workflow', record_id: RUN }] } } })
+}
+function otherWorkflow() {
+  let serialized = JSON.stringify(resultFixture())
+  for (const [from, to] of [[RUN, OTHER_RUN], [VERSION, '80000000-0000-0000-0000-000000000008'],
+    [EVALUATION, '90000000-0000-0000-0000-000000000009'], [CREATOR, 'a0000000-0000-0000-0000-00000000000a'],
+    [CRITIC, 'b0000000-0000-0000-0000-00000000000b']] as const) serialized = serialized.replaceAll(from, to)
+  return JSON.parse(serialized) as ReturnType<typeof resultFixture>
 }
 function answer(url: string) {
   return url.includes('/history/content') ? fixture.history : url.includes('/history') ? fixture.metadata
@@ -35,11 +56,130 @@ beforeEach(() => {
   vi.stubGlobal('navigator', { clipboard: { writeText: clipboard }, onLine: true, language: 'tr-TR' })
 })
 afterEach(() => {
-  cleanup(); clients.splice(0).forEach(client => client.clear())
+  cleanup(); retainedObservers.splice(0).forEach(unsubscribe => unsubscribe()); clients.splice(0).forEach(client => client.clear())
   vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks()
 })
 
 describe('persisted results, quality and privacy', () => {
+  it.each(['findings', 'http_integrity'] as const)('retains revocation across result and parent remounts with cached approval: %s', async failure => {
+    const rendered = view(); await tick()
+    const client = clients.at(-1)!
+    retainResult(client)
+    expect(screen.getByRole('button', { name: "Prompt'u Kopyala" })).toBeEnabled()
+    fetcher.mockImplementation((url: string) => Promise.resolve(url.includes('/history/content') ? inconsistentHistory(failure) : json(answer(url))))
+    fireEvent.click(screen.getByRole('button', { name: 'Prompt Sürümlerini ve Değerlendirmeleri Yükle' })); await tick()
+    expect(screen.queryByLabelText('Seçilen prompt metni')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Sonuç ve Geçmişi Kapat' })); await tick()
+    expect(client.getQueryData(workflowKeys.result(RUN, PARENT))).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Sonuç ve Geçmişi Görüntüle' })); await tick()
+    expect(screen.queryByRole('button', { name: "Prompt'u Kopyala" })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Seçilen prompt metni')).not.toBeInTheDocument()
+    rendered.unmount(); await tick()
+    view(`?workflow=${RUN}&view=result`, client); await tick()
+    expect(screen.queryByLabelText('Seçilen prompt metni')).not.toBeInTheDocument()
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('/result'))).toHaveLength(1)
+    expect(fetcher.mock.calls.every(([, init]) => init.method === 'GET')).toBe(true)
+  })
+  it.each(['findings', 'http_integrity'] as const)('isolates revocation when switching to a valid workflow and returning: %s', async failure => {
+    view(); await tick()
+    const client = clients.at(-1)!
+    retainResult(client)
+    const other = otherWorkflow()
+    fetcher.mockImplementation((url: string) => {
+      if (url.includes('/prompt-requests/')) return Promise.resolve(json({ items: [fixture, other].map(value => ({
+        id: value.result.workflow.id, prompt_request_id: PARENT, status: 'COMPLETED', created_at: DATE,
+        finished_at: DATE, current_round: 1, completed_rounds: 1, integrity_checked: false })), next_cursor: null }))
+      if (url.includes(`/runs/${OTHER_RUN}`)) return Promise.resolve(json(url.includes('/history') ? other.metadata : url.includes('/result') ? other.result : other.result.workflow))
+      return Promise.resolve(url.includes('/history/content') ? inconsistentHistory(failure) : json(answer(url)))
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Prompt Sürümlerini ve Değerlendirmeleri Yükle' })); await tick()
+    fireEvent.click(screen.getByRole('button', { name: 'Kayıtlı Workflow’ları Görüntüle' })); await tick()
+    fireEvent.change(screen.getByLabelText('Bu promptun workflow’ları'), { target: { value: OTHER_RUN } }); await tick(); await tick()
+    expect(screen.getByRole('button', { name: "Prompt'u Kopyala" })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Sonucu Yenile' })); await tick()
+    expect(readResultIntegrity(client, RUN, PARENT).revoked).toBe(true)
+    expect(readResultIntegrity(client, OTHER_RUN, PARENT).revoked).toBe(false)
+    fireEvent.change(screen.getByLabelText('Bu promptun workflow’ları'), { target: { value: RUN } }); await tick(); await tick()
+    expect(screen.queryByRole('button', { name: "Prompt'u Kopyala" })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Seçilen prompt metni')).not.toBeInTheDocument()
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes(`/runs/${RUN}/result`))).toHaveLength(1)
+    expect(fetcher.mock.calls.every(([, init]) => init.method === 'GET')).toBe(true)
+  })
+  it.each(['pending', 'cancelled', 'timeout', 'failed', 'invalid'] as const)('keeps remounted approval revoked during a %s read and unrelated successful GETs', async outcome => {
+    view(); await tick()
+    const client = clients.at(-1)!
+    retainResult(client)
+    fetcher.mockImplementation((url: string) => Promise.resolve(url.includes('/history/content') ? inconsistentHistory('findings') : json(answer(url))))
+    fireEvent.click(screen.getByRole('button', { name: 'Prompt Sürümlerini ve Değerlendirmeleri Yükle' })); await tick()
+    fireEvent.click(screen.getByRole('button', { name: 'Sonuç ve Geçmişi Kapat' })); await tick()
+    fireEvent.click(screen.getByRole('button', { name: 'Sonuç ve Geçmişi Görüntüle' })); await tick()
+    let complete!: (response: Response) => void
+    fetcher.mockImplementation((url: string, init: RequestInit) => {
+      if (!url.includes('/result')) return Promise.resolve(json(answer(url)))
+      if (outcome === 'failed') return Promise.resolve(json({ status: 503, error_code: 'workflow_unavailable' }, 503))
+      if (outcome === 'invalid') return Promise.resolve(json({ ...fixture.result, workflow: { ...fixture.result.workflow, prompt_request_id: OTHER_RUN } }))
+      return new Promise<Response>((resolve, reject) => {
+        complete = resolve
+        init.signal!.addEventListener('abort', () => reject(new DOMException('Cancelled', 'AbortError')))
+      })
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Sonucu Yenile' })); await tick()
+    if (outcome === 'cancelled') await act(async () => { await client.cancelQueries({ queryKey: workflowKeys.result(RUN, PARENT) }) })
+    if (outcome === 'timeout') await tick(10_001)
+    fireEvent.click(screen.getByRole('button', { name: 'Şimdi Yenile' })); await tick()
+    fireEvent.click(screen.getByRole('button', { name: 'Geçmiş Özetini Yenile' })); await tick()
+    expect(readResultIntegrity(client, RUN, PARENT).revoked).toBe(true)
+    expect(screen.queryByLabelText('Seçilen prompt metni')).not.toBeInTheDocument()
+    if (outcome === 'pending') {
+      expect(screen.getByRole('button', { name: 'Sonucu Yenile' })).toBeDisabled()
+      complete(json(fixture.result)); await tick()
+    } else {
+      fetcher.mockImplementation((url: string) => Promise.resolve(json(answer(url))))
+      fireEvent.click(screen.getByRole('button', { name: 'Sonucu Yenile' })); await tick()
+    }
+    await tick()
+    expect(screen.getByRole('button', { name: "Prompt'u Kopyala" })).toBeEnabled()
+    expect(fetcher.mock.calls.every(([, init]) => init.method === 'GET')).toBe(true)
+  })
+  it('discards retained inconsistent content after fresh result verification and requires a new explicit content load', async () => {
+    view(); await tick()
+    const client = clients.at(-1)!
+    const contentKey = workflowKeys.content(RUN, PARENT)
+    const observer = new QueryObserver(client, { ...workflowContentQuery(RUN, PARENT), enabled: false, gcTime: Infinity })
+    retainedObservers.push(observer.subscribe(() => {}))
+    fetcher.mockImplementation((url: string) => Promise.resolve(url.includes('/history/content') ? inconsistentHistory('findings') : json(answer(url))))
+    fireEvent.click(screen.getByRole('button', { name: 'Prompt Sürümlerini ve Değerlendirmeleri Yükle' })); await tick()
+    expect(client.getQueryData(contentKey)).toBeDefined()
+    fetcher.mockImplementation((url: string) => Promise.resolve(json(answer(url))))
+    fireEvent.click(screen.getByRole('button', { name: 'Sonucu Yenile' })); await tick(); await tick()
+    expect(screen.getByRole('button', { name: "Prompt'u Kopyala" })).toBeEnabled()
+    expect(client.getQueryData(contentKey)).toBeUndefined()
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('/history/content'))).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Prompt Sürümlerini ve Değerlendirmeleri Yükle' })); await tick()
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('/history/content'))).toHaveLength(2)
+    expect(screen.getByLabelText('Sol prompt metni').textContent).toBe(ORIGINAL)
+  })
+  it('does not let an older pending revalidation erase a newer integrity observation', async () => {
+    view(); await tick()
+    const client = clients.at(-1)!
+    fetcher.mockImplementation((url: string) => Promise.resolve(url.includes('/history/content') ? inconsistentHistory('findings') : json(answer(url))))
+    fireEvent.click(screen.getByRole('button', { name: 'Prompt Sürümlerini ve Değerlendirmeleri Yükle' })); await tick()
+    let complete!: (response: Response) => void
+    fetcher.mockImplementation((url: string) => url.includes('/result') ? new Promise<Response>(resolve => { complete = resolve }) : Promise.resolve(json(answer(url))))
+    fireEvent.click(screen.getByRole('button', { name: 'Sonucu Yenile' })); await tick()
+    act(() => revokeResultIntegrity(client, RUN, PARENT))
+    complete(json(fixture.result)); await tick()
+    expect(screen.queryByRole('button', { name: "Prompt'u Kopyala" })).not.toBeInTheDocument()
+    expect(readResultIntegrity(client, RUN, PARENT).revoked).toBe(true)
+  })
+  it('uses both canonical UUID identities without transferring revocation to another parent', () => {
+    const client = createTestQueryClient(); clients.push(client)
+    const mixed = 'ABCDEF00-0000-0000-0000-000000000001'
+    revokeResultIntegrity(client, mixed, PARENT)
+    expect(readResultIntegrity(client, mixed.toLowerCase(), PARENT).revoked).toBe(true)
+    expect(readResultIntegrity(client, mixed, OTHER_RUN).revoked).toBe(false)
+    expect(readResultIntegrity(client, OTHER_RUN, PARENT).revoked).toBe(false)
+  })
   it('has no result UI or requests without selection or explicit result viewing', async () => {
     const rendered = view(''); await tick()
     expect(screen.queryByRole('region', { name: 'Sonuç ve Değerlendirme Geçmişi' })).not.toBeInTheDocument()
@@ -186,6 +326,41 @@ describe('persisted results, quality and privacy', () => {
     expect(screen.getByText('Tur 1 · Kayıtlı değerlendirme (doğrulanmadı)')).toBeInTheDocument()
     expect(screen.queryByLabelText('Seçilen prompt metni')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Prompt Sürümlerini ve Değerlendirmeleri Yükle' })).toBeDisabled()
+  })
+  it.each(['findings', 'http_integrity'] as const)('revokes a cached result when content history reports %s', async failure => {
+    view(); await tick()
+    expect(screen.getByRole('button', { name: "Prompt'u Kopyala" })).toBeEnabled()
+    const inconsistent = { ...fixture.history, metadata: { ...fixture.history.metadata,
+      workflow: { ...fixture.history.metadata.workflow, selected: null, stored_best_version_id: null,
+        findings: [{ code: 'progress_selection', scope: 'workflow', record_id: RUN }] } } }
+    fetcher.mockImplementation((url: string) => Promise.resolve(url.includes('/history/content')
+      ? failure === 'findings' ? json(inconsistent) : json({ status: 409, error_code: 'workflow_integrity_inconsistent' }, 409)
+      : json(answer(url))))
+    fireEvent.click(screen.getByRole('button', { name: 'Prompt Sürümlerini ve Değerlendirmeleri Yükle' })); await tick()
+    expect(screen.queryByRole('button', { name: "Prompt'u Kopyala" })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Seçilen prompt metni')).not.toBeInTheDocument()
+    expect(screen.getByText('Tur 1 · Kayıtlı değerlendirme')).toBeInTheDocument()
+    expect(clipboard).not.toHaveBeenCalled()
+    await tick(20_000)
+    expect(screen.queryByRole('button', { name: "Prompt'u Kopyala" })).not.toBeInTheDocument()
+    // TanStack can resolve cancellation with its older, reverted success data.
+    // That is not a fresh validated response and must not restore approval.
+    fetcher.mockImplementation((url: string, init: RequestInit) => url.includes('/result')
+      ? new Promise<Response>((_resolve, reject) => init.signal!.addEventListener('abort', () => reject(new DOMException('Cancelled', 'AbortError'))))
+      : Promise.resolve(json(answer(url))))
+    fireEvent.click(screen.getByRole('button', { name: 'Sonucu Yenile' })); await tick()
+    await act(async () => { await clients.at(-1)!.cancelQueries({ queryKey: workflowKeys.result(RUN, PARENT) }) }); await tick()
+    expect(screen.queryByRole('button', { name: "Prompt'u Kopyala" })).not.toBeInTheDocument()
+    // A failed fresh result GET cannot clear the observation after child unmount.
+    fetcher.mockImplementation((url: string) => Promise.resolve(url.includes('/result')
+      ? json({ status: 409, error_code: 'workflow_integrity_inconsistent' }, 409) : json(answer(url))))
+    fireEvent.click(screen.getByRole('button', { name: 'Sonucu Yenile' })); await tick()
+    expect(screen.queryByRole('button', { name: "Prompt'u Kopyala" })).not.toBeInTheDocument()
+    // Only an explicitly requested, newly validated terminal result restores trust.
+    fixture.history = { ...fixture.history, metadata: fixture.metadata }
+    fetcher.mockImplementation((url: string) => Promise.resolve(json(answer(url))))
+    fireEvent.click(screen.getByRole('button', { name: 'Sonucu Yenile' })); await tick(); await tick()
+    expect(screen.getByRole('button', { name: "Prompt'u Kopyala" })).toBeEnabled()
   })
   it.each([403, 404, 409, 422, 429, 503, 500])('bounds result HTTP %s without executing work or exposing private errors', async status => {
     fetcher.mockImplementation((url: string) => Promise.resolve(url.includes('/result')

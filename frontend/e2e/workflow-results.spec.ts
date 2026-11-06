@@ -137,3 +137,90 @@ test('integrity inconsistency revokes copying while keeping real evaluation meta
   expect(localSpa.operationCount()).toBe(2)
   expect(posts.filter(path => path.endsWith('/execution'))).toHaveLength(1)
 })
+
+test('a new content-history integrity finding overrides an older cached result without a progress refresh', async ({ page, request, localSpa }) => {
+  const { workflow, results, posts } = await begin(page)
+  await expect(results.getByRole('button', { name: "Prompt'u Kopyala" })).toBeEnabled()
+  await localSpa.invalidateSelection(workflow.id)
+  const historyRead = page.waitForResponse(response => response.url().includes('/history/content?'))
+  await results.getByRole('button', { name: 'Prompt Sürümlerini ve Değerlendirmeleri Yükle' }).click()
+  const history = await historyRead
+  expect(history.status()).toBe(200)
+  const stored = await history.json()
+  expect(stored.metadata.evaluations).toHaveLength(1)
+  expect(stored.metadata.workflow.findings.length).toBeGreaterThan(0)
+  await expect(results.getByRole('button', { name: "Prompt'u Kopyala" })).toHaveCount(0)
+  await expect(results.getByLabel('Seçilen prompt metni')).toHaveCount(0)
+  await expect(results.getByText(/Geçmiş içeriği bir bütünlük sorunu bildirdi/)).toBeVisible()
+  await expect(results.getByText('Tur 1 · Kayıtlı değerlendirme', { exact: true })).toBeVisible()
+  await results.getByRole('button', { name: 'Sonucu Yenile' }).click()
+  await expect(results.getByRole('button', { name: "Prompt'u Kopyala" })).toHaveCount(0)
+  expect((await request.get(`/api/v1/runs/${workflow.id}/result`)).status()).toBe(409)
+  expect((await (await request.get(`/api/v1/runs/${workflow.id}/history`)).json()).evaluations).toHaveLength(1)
+  await page.reload()
+  await expect(results.getByRole('alert').first()).toBeVisible()
+  await expect(results.getByRole('button', { name: "Prompt'u Kopyala" })).toHaveCount(0)
+  expect(localSpa.operationCount()).toBe(2)
+  expect(posts).toHaveLength(3)
+})
+
+test('closing and reopening results cannot reuse revoked approval while cache collection is paused', async ({ page, request, localSpa }) => {
+  await page.clock.install()
+  let resultReads = 0
+  let progressReads = 0
+  const diagnostics: string[] = []
+  page.on('console', message => diagnostics.push(message.text()))
+  page.on('pageerror', error => diagnostics.push(error.message))
+  page.on('request', request => {
+    if (/\/runs\/[^/]+\/result\?/.test(request.url())) resultReads++
+    if (/\/runs\/[^/]+\?/.test(request.url())) progressReads++
+  })
+  const { workflow, monitor, results, posts } = await begin(page)
+  await expect(results.getByRole('button', { name: "Prompt'u Kopyala" })).toBeEnabled()
+  const original = await (await request.get(`/api/v1/runs/${workflow.id}/result`)).json()
+  const second = await request.post(`/api/v1/prompt-requests/${workflow.prompt_request_id}/runs`, { data: { client_idempotency_key: `test-${randomUUID()}` } })
+  expect(second.status()).toBe(201)
+  const otherId = (await second.json()).workflow.id as string
+  await localSpa.invalidateSelection(workflow.id)
+  await results.getByRole('button', { name: 'Prompt Sürümlerini ve Değerlendirmeleri Yükle' }).click()
+  await expect(results.getByText(/Geçmiş içeriği bir bütünlük sorunu bildirdi/)).toBeVisible()
+  // Hold zero-delay cache collection across the two clicks. Approval must be
+  // revoked independently of whether an old successful Query is still retained.
+  await page.clock.pauseAt(new Date(Date.now() + 1000))
+  await monitor.getByRole('button', { name: 'Sonuç ve Geçmişi Kapat' }).click()
+  await monitor.getByRole('button', { name: 'Sonuç ve Geçmişi Görüntüle' }).click()
+  await expect(results.getByRole('button', { name: "Prompt'u Kopyala" })).toHaveCount(0)
+  await expect(results.getByLabel('Seçilen prompt metni')).toHaveCount(0)
+  expect(resultReads).toBe(1)
+  await page.clock.resume()
+  await monitor.getByRole('button', { name: 'Kayıtlı Workflow’ları Görüntüle' }).click()
+  await monitor.getByLabel('Bu promptun workflow’ları').selectOption(otherId)
+  await expect(results.getByText(/Nihai sonuç henüz hazır değil/)).toBeVisible()
+  await monitor.getByLabel('Bu promptun workflow’ları').selectOption(workflow.id)
+  await expect(results.getByRole('alert').first()).toBeVisible()
+  await expect(results.getByLabel('Seçilen prompt metni')).toHaveCount(0)
+  // Restore only the disposable fixture to model an external, correct repair.
+  // UI trust still requires new GETs; restoration itself cannot clear the guard.
+  await localSpa.restoreSelection(workflow.id, original.candidate.version.id)
+  await monitor.getByRole('button', { name: 'Şimdi Yenile', exact: true }).click()
+  await results.getByRole('button', { name: 'Geçmiş Özetini Yenile' }).click()
+  await expect(results.getByRole('button', { name: 'Sonucu Yenile' })).toBeEnabled()
+  await expect(results.getByLabel('Seçilen prompt metni')).toHaveCount(0)
+  const verified = page.waitForResponse(response => response.url().includes(`/runs/${workflow.id}/result?`))
+  await results.getByRole('button', { name: 'Sonucu Yenile' }).click()
+  expect((await verified).status()).toBe(200)
+  await expect(results.getByRole('button', { name: "Prompt'u Kopyala" })).toBeEnabled()
+  await expect(results.getByRole('button', { name: 'Prompt Sürümlerini ve Değerlendirmeleri Yükle' })).toHaveAttribute('aria-expanded', 'false')
+  await localSpa.invalidateSelection(workflow.id)
+  await results.getByRole('button', { name: 'Prompt Sürümlerini ve Değerlendirmeleri Yükle' }).click()
+  await expect(results.getByLabel('Seçilen prompt metni')).toHaveCount(0)
+  const beforeReload = progressReads
+  await page.reload()
+  await expect(results.getByRole('alert').first()).toBeVisible()
+  expect(progressReads).toBeGreaterThan(beforeReload)
+  await expect(results.getByRole('button', { name: "Prompt'u Kopyala" })).toHaveCount(0)
+  expect(diagnostics.join('\n')).not.toContain('Keep Merhaba')
+  expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('Keep Merhaba')
+  expect(posts).toHaveLength(3)
+  expect(localSpa.operationCount()).toBe(2)
+})

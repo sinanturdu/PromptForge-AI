@@ -1,5 +1,6 @@
 """Tests for Milestone 3A asynchronous SQLite & SQLAlchemy database foundation."""
 
+import logging
 from pathlib import Path
 from typing import Annotated
 from unittest.mock import patch
@@ -46,6 +47,28 @@ class IsolatedSettings(Settings):
 def anyio_backend() -> str:
     """Run async database tests exclusively on the asyncio backend."""
     return "asyncio"
+
+
+@pytest.mark.anyio
+async def test_sql_diagnostics_hide_private_bind_values(
+    caplog: pytest.LogCaptureFixture, capsys: pytest.CaptureFixture[str]
+) -> None:
+    marker = "SYNTHETIC_PRIVATE_SQL_PROMPT"
+    caplog.set_level(logging.INFO, logger="sqlalchemy.engine")
+    manager = DatabaseSessionManager("sqlite+aiosqlite:///:memory:", echo=True)
+    try:
+        async with manager.engine.begin() as connection:
+            await connection.execute(text("CREATE TABLE privacy_probe (payload TEXT UNIQUE)"))
+            statement = text("INSERT INTO privacy_probe (payload) VALUES (:payload)")
+            await connection.execute(statement, {"payload": marker})
+            with pytest.raises(IntegrityError) as failure:
+                await connection.execute(statement, {"payload": marker})
+        diagnostics = caplog.text + capsys.readouterr().out
+        assert "INSERT INTO privacy_probe" in diagnostics  # SQL diagnostics still work.
+        assert marker not in diagnostics
+        assert marker not in str(failure.value)
+    finally:
+        await manager.dispose()
 
 
 def test_default_database_url_is_valid_and_cwd_independent(

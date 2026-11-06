@@ -1,10 +1,11 @@
-import { useEffect, useId, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { WorkflowProgress } from '../contracts'
 import { isTerminal } from '../contracts'
-import { workflowMetadataQuery, workflowResultQuery } from '../queries'
+import { workflowKeys, workflowMetadataQuery, workflowResultQuery } from '../queries'
 import { trustworthyProgress, workflowStatusLabels } from '../progress'
 import { trustworthyMetadata } from '../readValidation'
+import { confirmResultIntegrity, readResultIntegrity, revokeResultIntegrity, useResultIntegrity } from '../resultIntegrity'
 import { CopyPromptButton } from './CopyPromptButton'
 import { EvaluationPanel } from './EvaluationPanel'
 import { qualityLabels } from '../evaluationLabels'
@@ -17,11 +18,16 @@ export function WorkflowResults({ workflowId, parentId, progress, unverified }: 
   readonly unverified: boolean
 }) {
   const id = useId()
+  const client = useQueryClient()
   const [contentOpen, setContentOpen] = useState(false)
+  const integrity = useResultIntegrity(workflowId, parentId)
+  const contentIntegrityFailed = integrity.revoked
+  const reportIntegrityFailure = useCallback(() => revokeResultIntegrity(client, workflowId, parentId), [client, workflowId, parentId])
   const metadata = useQuery({ ...workflowMetadataQuery(workflowId, parentId), staleTime: Infinity,
     refetchOnMount: false, refetchOnReconnect: false, networkMode: 'always' })
-  const blocked = unverified || Boolean(progress && !trustworthyProgress(progress)) || metadata.isError ||
+  const metadataBlocked = unverified || Boolean(progress && !trustworthyProgress(progress)) || metadata.isError ||
     Boolean(metadata.data && !trustworthyMetadata(metadata.data))
+  const blocked = metadataBlocked || contentIntegrityFailed
   const terminal = progress && isTerminal(progress.status)
   const result = useQuery({ ...workflowResultQuery(workflowId, parentId),
     enabled: query => Boolean(terminal && metadata.data && !blocked && query.state.status !== 'error') })
@@ -43,12 +49,29 @@ export function WorkflowResults({ workflowId, parentId, progress, unverified }: 
   const best = data?.workflow.status === 'COMPLETED' ? data.candidate : null
   const selected = data?.workflow.selected
   const summary = metadata.data
+  async function refreshResult() {
+    const key = workflowKeys.result(workflowId, parentId)
+    const observed = readResultIntegrity(client, workflowId, parentId)
+    const before = client.getQueryState(key)?.dataUpdateCount ?? 0
+    const read = await result.refetch({ cancelRefetch: false })
+    // A cancelled Query refetch can resolve with reverted cached data. Only a
+    // newly committed successful read, even within the same millisecond, is proof.
+    if (observed.revoked && !read.isError && read.data &&
+      (client.getQueryState(key)?.dataUpdateCount ?? 0) > before &&
+      readResultIntegrity(client, workflowId, parentId) === observed) {
+      // A previous rejected content snapshot is neither new evidence nor a fresh
+      // history request. Close it and evict it before restoring result approval.
+      setContentOpen(false)
+      client.removeQueries({ queryKey: workflowKeys.content(workflowId, parentId), exact: true })
+      confirmResultIntegrity(client, workflowId, parentId, observed)
+    }
+  }
 
   return <section id="workflow-results" aria-labelledby={`${id}-heading`} className="min-w-0 scroll-mt-24 space-y-5 border-t border-slate-700 pt-6">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <h3 id={`${id}-heading`} className="text-lg font-semibold text-slate-100">Sonuç ve Değerlendirme Geçmişi</h3>
-      <button type="button" className={readButton} disabled={!terminal || result.isFetching || blocked}
-        onClick={() => { void result.refetch({ cancelRefetch: false }) }}>Sonucu Yenile</button>
+      <button type="button" className={readButton} disabled={!terminal || result.isFetching || metadataBlocked}
+        onClick={() => { void refreshResult() }}>Sonucu Yenile</button>
     </div>
     <dl className="grid min-w-0 gap-3 text-xs text-slate-400 sm:grid-cols-2">
       <div><dt>Sonucun workflow kimliği</dt><dd className="mt-1 break-all font-mono">{workflowId}</dd></div>
@@ -57,6 +80,7 @@ export function WorkflowResults({ workflowId, parentId, progress, unverified }: 
     <p className="text-sm text-slate-300">Kayıtlı yürütme: {progress ? workflowStatusLabels[progress.status] : 'Henüz okunmadı'}.</p>
     {!terminal ? <p role="status" className="text-sm text-slate-400">Nihai sonuç henüz hazır değil. HTTP 202 veya devam eden bir tur, tamamlanmış sonuç değildir.</p> : null}
     {blocked ? <p role="alert" className="rounded-xl border border-amber-500/40 bg-amber-950/20 p-4 text-sm text-amber-200">Sonucun bütünlüğü veya güncel okuması doğrulanamıyor. Prompt gösterimi ve kopyalama kapalı; kayıtlı metadata inceleme için korunur. Güvenli okumaları yenileyebilirsin.</p> : null}
+    {contentIntegrityFailed ? <p className="text-sm text-amber-200">Geçmiş içeriği bir bütünlük sorunu bildirdi. Sonucu Yenile ile yeniden doğrulanana kadar önceki prompt kullanılamaz.</p> : null}
     <WorkflowReadError title="Sonuç okunamadı" error={result.error} />
     {terminal && !blocked && (result.isFetching || !metadata.data) ? <p role="status" className="text-sm text-slate-400">Doğrulanmış sonuç okunuyor...</p> : null}
     {data ? <>
@@ -99,7 +123,8 @@ export function WorkflowResults({ workflowId, parentId, progress, unverified }: 
         {summary.operations.filter(v => v.incomplete || v.unresolved || v.staged_unevaluated_candidate).length ? <p className="text-sm text-amber-200">Geçmişte tamamlanması doğrulanmamış veya henüz değerlendirilmemiş işlem kayıtları var. Bunlar tamamlanmış değerlendirme turu sayılmaz.</p> : null}
       </> : null}
       <button type="button" className={readButton} disabled={blocked || !summary} aria-expanded={contentOpen} onClick={() => setContentOpen(!contentOpen)}>{contentOpen ? 'Geçmiş İçeriğini Kapat' : 'Prompt Sürümlerini ve Değerlendirmeleri Yükle'}</button>
-      {contentOpen && !blocked ? <WorkflowHistoryContent workflowId={workflowId} parentId={parentId} selectedVersionId={selected?.prompt_version_id} /> : null}
+      {contentOpen && !blocked ? <WorkflowHistoryContent workflowId={workflowId} parentId={parentId} selectedVersionId={selected?.prompt_version_id}
+        onIntegrityFailure={reportIntegrityFailure} /> : null}
     </section>
   </section>
 }

@@ -966,11 +966,15 @@ describe('Server-side search, target AI filtering, and URL state management (Mil
       expect(await screen.findByText('React Claude kaydı #12')).toBeInTheDocument()
 
       // Push page 2 entry: ?q=React&target_mode=anthropic&page=2
-      const navP1 = await screen.findByRole('navigation', { name: /Prompt geçmişi sayfalama/i })
+      // The same record was visible before the debounced filter committed. Wait
+      // for that request and its current pagination, not a retained old DOM node.
       await waitFor(() => {
-        expect(within(navP1).getByRole('button', { name: /Sonraki/i })).toBeEnabled()
+        expect(getRecordedListQueries().at(-1)).toMatchObject({ rawQ: 'React', rawTargetMode: 'anthropic' })
+        const currentNav = screen.getByRole('navigation', { name: /Prompt geçmişi sayfalama/i })
+        expect(within(currentNav).getByRole('button', { name: /Sonraki/i })).toBeEnabled()
       })
-      await user.click(within(navP1).getByRole('button', { name: /Sonraki/i }))
+      await user.click(within(screen.getByRole('navigation', { name: /Prompt geçmişi sayfalama/i }))
+        .getByRole('button', { name: /Sonraki/i }))
 
       await waitFor(() => {
         expect(window.location.search).toBe('?q=React&target_mode=anthropic&page=2')

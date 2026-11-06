@@ -29,6 +29,11 @@ def build(tmp_path: Path) -> Path:
     (root / "assets" / "index-12345678.js").write_text("const built = true;", encoding="utf-8")
     (root / "assets" / "private.env").write_text("PRIVATE_BUILD_SECRET", encoding="utf-8")
     (root / "assets" / "index.js.map").write_text("PRIVATE_SOURCE_MAP", encoding="utf-8")
+    (root / "assets" / ".private").mkdir()
+    (root / "assets" / ".private" / "hidden.js").write_text(
+        "PRIVATE_HIDDEN_ASSET", encoding="utf-8"
+    )
+    (tmp_path / "private.js").write_text("PRIVATE_OUTSIDE_BUILD", encoding="utf-8")
     (root / "favicon.svg").write_text("<svg/>", encoding="utf-8")
     return root
 
@@ -72,6 +77,13 @@ async def test_same_origin_spa_navigation_assets_and_workflow(
         "/assets/index.js.map",
         "/assets/missing.js",
         "/assets/../index.html",
+        "/assets/%2e%2e/index.html",
+        "/assets/%2e%2e%2fprivate.env",
+        "/assets/%2e%2e%5cprivate.env",
+        "/assets/%252e%252e/private.env",
+        "/assets/%2eprivate/hidden.js",
+        "/assets/%2e%2e/%2e%2e/private.js",
+        "/assets/%2e%2e%5c%2e%2e%5cprivate.js",
         "/unknown",
         "/history/nested",
     ],

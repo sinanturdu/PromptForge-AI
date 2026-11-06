@@ -43,7 +43,7 @@ from app.core.execution_supervisor import (
 from app.db import write_transactions
 from app.db.base import utc_now
 from app.db.write_transactions import write_transaction
-from app.llm.errors import LLMErrorCode
+from app.llm.errors import LLMError, LLMErrorCode
 from app.llm.providers.fake import FakeLLMProvider
 from app.llm.schemas import LLMRequest, LLMResponse, ModelSettings
 from app.models import PromptRequest
@@ -144,13 +144,13 @@ class Harness:
         ).workflow
 
     async def supervisor(
-        self, provider: ControlledFake, **options: Any
+        self, provider: ControlledFake, *, max_retries: int = 0, **options: Any
     ) -> WorkflowExecutionSupervisor:
         settings = SupervisorSettings(
             database_url=build_sqlite_url(self.db.path),
             workflow_api_enabled=True,
             workflow_execution_enabled=True,
-            llm_max_retries=0,
+            llm_max_retries=max_retries,
             llm_json_repair_attempts=0,
         )
         runtime = await qualify_execution_runtime()
@@ -642,6 +642,45 @@ async def test_changed_fence_before_provider_attempt_prevents_dispatch(
     assert result is not None and result.code == "lease_stop_unknown"
     assert not provider.requests and supervisor.phase == "draining"
     assert (await harness.db.readback.read(state.id)).operations[0].unresolved
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("authority_change", ["renewed_fence", "lease_margin", "shutdown"])
+async def test_gateway_retry_rechecks_authority_before_another_dispatch(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch, authority_change: str
+) -> None:
+    provider = ControlledFake([LLMErrorCode.RATE_LIMIT, *script(["qualified"])])
+    supervisor = await harness.supervisor(provider, max_retries=1)
+    state = await harness.state()
+    original = provider.generate
+
+    async def rejected_attempt(request: LLMRequest) -> LLMResponse:
+        try:
+            return await original(request)
+        except LLMError:
+            # Change authority after a definite transient rejection, before the
+            # actual gateway retry. No test sleep determines the race outcome.
+            if authority_change == "renewed_fence":
+                reserved = harness.db.reservations[-1].workflow
+                await harness.db.persistence.renew_claim(reserved.fence(), lease_seconds=120)
+            elif authority_change == "lease_margin":
+                harness.db.clock.now += timedelta(seconds=106)
+            else:
+                supervisor.begin_shutdown()
+            raise
+
+    monkeypatch.setattr(provider, "generate", rejected_attempt)
+    assert (await harness.submit(supervisor, state)).accepted
+    result = await supervisor.wait_idle()
+    assert result is not None
+    assert result.code == (
+        "cancelled_unknown" if authority_change == "shutdown" else "lease_stop_unknown"
+    )
+    assert len(provider.requests) == 1 and provider.max_in_flight == 1
+    summary = await harness.db.readback.read(state.id)
+    assert summary.workflow.status == "GENERATING"
+    assert summary.operations[0].unresolved and summary.evaluations == ()
+    assert not (await harness.submit(supervisor, state)).accepted
 
 
 @pytest.mark.anyio

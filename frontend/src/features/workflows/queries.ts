@@ -15,6 +15,8 @@ export const workflowKeys = {
   metadata: (id: string, parentId?: string) => ['workflows', 'run', id, 'metadata', parentId ?? null] as const,
   content: (id: string, parentId?: string) => ['workflows', 'run', id, 'content', parentId ?? null] as const,
   result: (id: string, parentId?: string) => ['workflows', 'run', id, 'result', parentId ?? null] as const,
+  integrity: (id: string, parentId: string) =>
+    ['workflows', 'run', id.toLowerCase(), 'integrity', parentId.toLowerCase()] as const,
 }
 
 // No global observers/timers, focus polling or persisted cache. Future screens opt
