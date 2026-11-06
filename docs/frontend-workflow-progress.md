@@ -1,5 +1,10 @@
 # Persisted workflow progress and safe polling — M5F-4C
 
+M5F-4D adds [results, evaluation history and comparison](frontend-workflow-results.md)
+via **Sonuç ve Geçmişi Görüntüle**. Its explicit `view=result` URL state is refresh-safe.
+The progress poller and accepted/unknown start locks are unchanged; ordinary progress
+still does not retrieve content-bearing history or terminal results.
+
 ## Reaching the monitor
 
 Prompt request details retain the existing M5F-4B save/configure/create/start flow and
@@ -97,9 +102,10 @@ as trusted completion. Known integrity findings always take precedence over appr
 
 Metadata may be older than the latest progress read and is labeled as a one-time
 snapshot. When it reveals inconsistent history, refresh the metadata safely before
-trusting completion. No content history, final result or recovery endpoint is fetched
-automatically. Full prompt comparison, critique evidence, clarification editing and
-criterion/result rendering remain M5F-4D work. No nonexistent result route is linked.
+trusting completion. Ordinary monitoring does not fetch content history, final result
+or recovery endpoints. M5F-4D's explicit result view retrieves terminal results and
+metadata, and its separate load action retrieves history content. Clarification
+editing remains deferred. No nonexistent result route is linked.
 
 ## Submission uncertainty and errors
 
@@ -148,4 +154,4 @@ security, model or migration behavior is changed and no paid provider is called.
 
 These are controlled polling observations, not instantaneous server push, durable HTTP
 delivery, exactly-once billing or real-model quality evaluation. M5F-4D owns the detailed
-results/history interface and any separately reviewed result navigation.
+results/history interface on the existing selected workflow page.

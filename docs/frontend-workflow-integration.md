@@ -1,12 +1,17 @@
 # Frontend workflow foundation — M5F-4A
 
+M5F-4D adds [trusted results, Critic details and on-demand comparison](frontend-workflow-results.md)
+inside the selected workflow monitor. Sensitive result/history content is requested only
+through that explicit view, not by ordinary progress polling. The local security boundary
+and default-off execution flags are unchanged.
+
 M5F-4C now supplies [safe polling and persisted progress](frontend-workflow-progress.md)
 on the existing detail route. Shared default query definitions remain non-polling;
 only the selected, visible monitor opts into the bounded read-only polling policy.
 
 M5F-4B now connects this foundation to [explicit creation/start controls on saved prompt details](frontend-workflow-creation.md).
 The M5F-4A inventory below records the original foundation boundary. Saving remains
-independent. Live progress is now provided by M5F-4C; detailed results remain M5F-4D work.
+independent. Live progress is provided by M5F-4C; M5F-4D supplies the separate result view.
 
 ## Existing application and scope
 

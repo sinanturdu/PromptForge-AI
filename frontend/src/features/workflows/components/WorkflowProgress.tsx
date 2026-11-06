@@ -1,11 +1,13 @@
 import { useId, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router'
 import { ErrorAlert } from '../../../components/common/ErrorAlert'
 import { isTerminal, trustedSelection } from '../contracts'
 import { WorkflowClientError } from '../errors'
 import { workflowMetadataQuery, workflowMonitoringQuery } from '../queries'
 import { progressExplanation, trustworthyProgress, workflowStatusLabels } from '../progress'
 import { useProgressVisibility } from '../useProgressVisibility'
+import { WorkflowResults } from './WorkflowResults'
 
 const control = 'inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-200 transition-colors hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 disabled:cursor-not-allowed disabled:opacity-50'
 const operationNames = { create: 'Architect · Hazırlama', revise: 'Architect · İyileştirme', evaluate: 'Critic · Değerlendirme' } as const
@@ -16,6 +18,8 @@ export function WorkflowProgress({ workflowId, parentId }: { readonly workflowId
   const [paused, setPaused] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const headingId = useId()
+  const [search, setSearch] = useSearchParams()
+  const resultsOpen = search.get('view') === 'result'
   const history = useQuery({ ...workflowMetadataQuery(workflowId, parentId),
     enabled: visible && historyOpen, refetchOnMount: false, refetchOnReconnect: false, networkMode: 'always', staleTime: 2000 })
   const historyBroken = Boolean(history.data && (!trustworthyProgress(history.data.workflow) ||
@@ -76,7 +80,14 @@ export function WorkflowProgress({ workflowId, parentId }: { readonly workflowId
         </> : history.isFetching ? <p role="status" className="text-sm text-slate-400">İşlem özeti okunuyor...</p> : null}
         <button type="button" className={control} disabled={history.isFetching || !visible} onClick={() => { void history.refetch({ cancelRefetch: false }) }}>İşlem Özetini Yenile</button>
       </div> : null}
-      {terminal ? <p className="text-sm text-slate-400">Ayrıntılı sonuç ve karşılaştırma görünümü bu ekranda henüz kullanılamıyor.</p> : null}
+      <button type="button" className={control} aria-expanded={resultsOpen} aria-controls="workflow-results" onClick={() => {
+        const next = new URLSearchParams(search)
+        if (resultsOpen) next.delete('view')
+        else next.set('view', 'result')
+        setSearch(next, { replace: true })
+      }}>{resultsOpen ? 'Sonuç ve Geçmişi Kapat' : 'Sonuç ve Geçmişi Görüntüle'}</button>
+      {resultsOpen ? <WorkflowResults workflowId={workflowId} parentId={parentId} progress={row}
+        unverified={Boolean(error) || Boolean(row && !trusted)} /> : null}
     </section>
   )
 }

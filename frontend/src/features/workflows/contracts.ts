@@ -140,6 +140,7 @@ export type SelectedEvaluation = Parsed<typeof selectedEvaluation>
 export type WorkflowMetadataHistory = Parsed<typeof metadataResponse>
 export type WorkflowContentHistory = Parsed<typeof contentResponse>
 export type WorkflowResult = Parsed<typeof resultResponse>
+export type WorkflowVersionContent = Parsed<typeof versionContent>
 
 export interface WorkflowCreateRequest {
   readonly client_idempotency_key: string

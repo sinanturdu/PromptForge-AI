@@ -1,10 +1,16 @@
 # PromptForge AI — Frontend
 
+**M5F-4D:** [Results, evaluations and prompt comparison](../docs/frontend-workflow-results.md)
+are reached through **Sonuç ve Geçmişi Görüntüle** in the selected workflow monitor.
+Terminal results, backend quality outcomes and integrity remain distinct. Nine-criterion
+details, on-demand content history, exact text comparison and trusted clipboard copying
+are available; viewing never submits execution.
+
 **M5F-4C:** [Live persisted workflow progress](../docs/frontend-workflow-progress.md)
 is available on prompt details. A selected/accepted run is monitored with one visible
 two-second GET poller, terminal/error stopping and manual refresh. `?workflow=<UUID>`
 restores selection; bounded cursor pages allow read-only viewing of previous runs.
-Unknown-start locks remain intact. Detailed result/history rendering is still M5F-4D.
+Unknown-start locks remain intact. M5F-4D adds the separate result/history view.
 
 **M5F-4B:** Saved prompt details now offer explicit configure → create workflow → start
 actions, with a 1–3 round limit, safe retry identity and a 202 acknowledgment. Save
@@ -181,9 +187,10 @@ Temel kayıt/geçmiş kapsamındaki **16 test** korunur:
 - `prompt-workflow.spec.ts` — Altı test: tüm tercihlerle tarayıcıdan kayıt, reload ve yeni browser context üzerinden kalıcılık, boş ve yalnızca boşluk içeren girdilerin POST/veritabanı kaydı oluşturmadan reddedilmesi, geçmişten doğru detaya gidip dönme ve 375 × 812 mobil kayıt/arama/filtre/detay akışı.
 - `history-filters.spec.ts` — Altı test: prompt ve proje bağlamında anahtar kelime araması, eşleşmeyen sonuçlar, ChatGPT/GPT–Claude–Gemini filtreleri (Universal dahil kontrol verileriyle), birleşik arama/hedef filtresi, URL parametre sırasından bağımsız doğrudan bağlantı, reload, Geri/İleri, tekil/tüm filtre temizleme ve filtreli sayfalama/detaydan dönüş.
 
-M5F ile toplam **24 Chromium testi** çalışır: `same-origin.spec.ts` bir aynı-origin testi,
+M5F ile toplam **32 Chromium testi** çalışır: `same-origin.spec.ts` bir aynı-origin testi,
 `optimization-ui.spec.ts` iki masaüstü/mobil oluşturma-başlatma testi ve
-`workflow-progress.spec.ts` beş kontrollü ilerleme/yenileme/kesinti testi ekler.
+`workflow-progress.spec.ts` beş kontrollü ilerleme/yenileme/kesinti testi ve
+`workflow-results.spec.ts` sekiz sonuç/kalite/geçmiş/karşılaştırma/pano/bütünlük testi ekler.
 Workflow testleri doğrulanmış Python/SQLite runtime gerektirir; özel yorumlayıcıyı
 `PROMPTFORGE_E2E_PYTHON` ile seçin. Bağlı SQLite sürümü güvenli değilse test başlatma
 başarısız olur. Kurulum ve yerel runtime ayrıntıları için [entegrasyon kılavuzuna](../docs/frontend-workflow-integration.md) bakın.

@@ -1,5 +1,6 @@
 import * as wire from './contracts'
 import { apiFailure, WorkflowClientError } from './errors'
+import { assertContent, assertResult } from './readValidation'
 
 function id(value: string): string {
   try { return wire.uuid(value) } catch { throw new WorkflowClientError('invalid_request') }
@@ -77,15 +78,15 @@ export const getWorkflowMetadataHistory = (workflowId: string, signal?: AbortSig
     return row
   }, [200], signal)
 export const getWorkflowContentHistory = (workflowId: string, signal?: AbortSignal, parentId?: string) =>
-  request(scoped(`${workflowPath(workflowId)}/history/content`, parentId), wire.contentResponse, [200], signal)
+  request(scoped(`${workflowPath(workflowId)}/history/content`, parentId), value => {
+    const content = wire.contentResponse(value)
+    assertContent(content, workflowId, parentId)
+    return content
+  }, [200], signal)
 export const getWorkflowResult = (workflowId: string, signal?: AbortSignal, parentId?: string) =>
   request(scoped(`${workflowPath(workflowId)}/result`, parentId), value => {
     const result = wire.resultResponse(value)
-    if (!wire.isTerminal(result.workflow.status) || !result.workflow.history_valid ||
-      result.workflow.records_truncated || result.workflow.findings.length > 0) throw new Error()
-    const selected = result.workflow.selected
-    if (selected && (result.candidate?.version.id !== selected.prompt_version_id ||
-      result.evaluation?.id !== selected.evaluation_id || !result.assessment)) throw new Error()
+    assertResult(result, workflowId, parentId)
     return result
   }, [200], signal)
 export function listWorkflows(parentId: string, params: wire.WorkflowListParams = {}, signal?: AbortSignal) {

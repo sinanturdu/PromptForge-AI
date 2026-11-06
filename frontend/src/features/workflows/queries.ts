@@ -38,12 +38,14 @@ export const workflowMetadataQuery = (id: string, parentId?: string) => queryOpt
   queryFn: ({ signal }) => workflowRead(signal, bounded => api.getWorkflowMetadataHistory(id, bounded, parentId)),
 })
 export const workflowContentQuery = (id: string, parentId?: string) => queryOptions({
-  ...readDefaults, queryKey: workflowKeys.content(id, parentId),
-  queryFn: ({ signal }) => api.getWorkflowContentHistory(id, signal, parentId),
+  ...readDefaults, staleTime: Infinity, refetchOnMount: false, refetchOnReconnect: false,
+  networkMode: 'always', queryKey: workflowKeys.content(id, parentId),
+  queryFn: ({ signal }) => workflowRead(signal, bounded => api.getWorkflowContentHistory(id, bounded, parentId)),
 })
 export const workflowResultQuery = (id: string, parentId?: string) => queryOptions({
-  ...readDefaults, queryKey: workflowKeys.result(id, parentId),
-  queryFn: ({ signal }) => api.getWorkflowResult(id, signal, parentId),
+  ...readDefaults, staleTime: Infinity, refetchOnMount: false, refetchOnReconnect: false,
+  networkMode: 'always', queryKey: workflowKeys.result(id, parentId),
+  queryFn: ({ signal }) => workflowRead(signal, bounded => api.getWorkflowResult(id, bounded, parentId)),
 })
 export const workflowListQuery = (parentId: string, params: WorkflowListParams = {}) => queryOptions({
   ...readDefaults, queryKey: workflowKeys.list(parentId, params),

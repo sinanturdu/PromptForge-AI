@@ -45,7 +45,14 @@ def main() -> None:
 
     scenario = sys.argv[3] if len(sys.argv) > 3 else "early"
     controlled = len(sys.argv) > 4 and sys.argv[4] == "controlled"
-    if scenario not in {"early", "three-round", "failed", "clarify"}:
+    if scenario not in {
+        "early",
+        "three-round",
+        "failed",
+        "clarify",
+        "not-qualified",
+        "unassessable",
+    }:
         raise RuntimeError("Invalid offline SPA scenario.")
     values = (
         [LLMErrorCode.AUTHENTICATION]
@@ -53,7 +60,13 @@ def main() -> None:
         else [architect("clarify")]
         if scenario == "clarify"
         else script(
-            ["bad", "critical", "qualified"] if scenario == "three-round" else ["qualified"]
+            ["bad", "critical", "qualified"]
+            if scenario == "three-round"
+            else ["critical", "critical", "critical"]
+            if scenario == "not-qualified"
+            else ["no_feedback"]
+            if scenario == "unassessable"
+            else ["qualified"]
         )
     )
 

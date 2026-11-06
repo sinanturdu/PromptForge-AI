@@ -76,7 +76,7 @@ export function OptimizationPanel({ promptRequestId }: { readonly promptRequestI
             <p className="font-semibold">Optimizasyon isteği kabul edildi.</p>
             <p>İşlem arka planda sürer. Bu kabul, tamamlandığı veya kalite koşullarını sağladığı anlamına gelmez.</p>
             <a href="#workflow-monitor" className="inline-flex min-h-11 items-center underline underline-offset-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">Canlı İlerlemeyi Görüntüle</a>
-            <p>Aşağıdaki ilerleme alanı kalıcı durumu okur; ayrıntılı sonuç ekranı sonraki aşamada eklenecek.</p>
+            <p>Aşağıdaki ilerleme alanı kalıcı durumu okur. Sonuç ve Geçmişi Görüntüle ile doğrulanmış sonuçları inceleyebilirsin.</p>
             <Link to={ROUTES.promptHistory} className="inline-flex min-h-11 items-center underline underline-offset-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">Prompt Geçmişine Git</Link>
           </div> : ui.attempt?.start === 'unknown' && ui.action === 'start' ? <p role="status" className="text-sm text-slate-200">Başlatma yanıtı bekleniyor...</p>
             : ui.attempt?.start === 'unknown' ? <div role="status" aria-live="polite" className="space-y-2 rounded-xl border border-amber-500/40 bg-amber-950/30 p-4 text-sm text-amber-100">
