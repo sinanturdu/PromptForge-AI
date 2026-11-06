@@ -17,7 +17,7 @@ describe('PromptForge AI application shell and focused prompt workspace', () => 
 
   it('explains the current limitation without exposing development status or future architecture', () => {
     render(<App />)
-    expect(screen.getByText(/AI optimizasyonu henüz etkin değildir/)).toBeInTheDocument()
+    expect(screen.getByText(/Kaydetmek optimizasyon başlatmaz/)).toBeInTheDocument()
     expect(screen.queryByText(/Milestone/)).not.toBeInTheDocument()
     expect(screen.queryByText('v0.0.1')).not.toBeInTheDocument()
     expect(screen.queryByText('Temel Mimari Güvenceler')).not.toBeInTheDocument()

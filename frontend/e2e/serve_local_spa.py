@@ -61,8 +61,9 @@ def main() -> None:
     )
     with (
         patch("app.main.create_provider", return_value=FakeLLMProvider(script(["qualified"]))),
-        prepare_local_execution_server(app, port=18081) as original,
+        prepare_local_execution_server(app, port=0) as original,
     ):
+        print(f"PROMPTFORGE_SPA_E2E_PORT={original.socket.getsockname()[1]}", flush=True)
         command.upgrade(build_alembic_config(settings.database_url), "head")
         prepared = prepare_execution_startup(original)
         install_local_spa(app, frontend / "dist", transport=prepared)

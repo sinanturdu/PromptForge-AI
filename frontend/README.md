@@ -1,9 +1,15 @@
 # PromptForge AI — Frontend
 
+**M5F-4B:** Saved prompt details now offer explicit configure → create workflow → start
+actions, with a 1–3 round limit, safe retry identity and a 202 acknowledgment. Save
+still only saves. [UI behavior and recovery limits](../docs/frontend-workflow-creation.md)
+cover session-only attempt metadata, unknown starts, manual status inspection and tests.
+No live progress or detailed results UI is added yet.
+
 React 19, TypeScript (`strict`), Vite 8, Tailwind CSS v4, React Router ve TanStack Query ile geliştirilmiş kullanıcı arayüzü. Genel sistem mimarisi için bkz. [`../docs/architecture.md`](../docs/architecture.md).
 
 **M5F-4A:** [Typed workflow client and secure same-origin setup](../docs/frontend-workflow-integration.md)
-are available as a shared foundation. Existing pages do not start optimization yet.
+are available as the shared foundation for the explicit saved-prompt optimization flow.
 For workflow API access, build with `npm run build` and serve dist using the verified
 backend command's explicit `--frontend-dist` option. Ordinary Vite development blocks
 workflow proxy paths; cross-origin execution is unsupported. Both backend flags remain

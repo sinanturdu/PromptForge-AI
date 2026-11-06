@@ -45,9 +45,9 @@ describe('Prompt request detail page and direct deep-link refresh behavior', () 
     expect(screen.getByText('Dengeli')).toBeInTheDocument()
     expect(screen.getByText('Orta')).toBeInTheDocument()
 
-    // Honest non-AI message must be displayed; no fake scores or generated prompts.
+    // Saving remains independent from the explicit optimization actions.
     expect(
-      screen.getByText(/AI optimizasyonu henüz etkin değildir/i),
+      screen.getByText(/Kaydetmek optimizasyon başlatmaz/i),
     ).toBeInTheDocument()
 
     // Navigate back to the new prompt page.

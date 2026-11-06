@@ -1,6 +1,7 @@
 import { Link, useLocation, useParams } from 'react-router'
 import { ROUTES } from '../app/routes'
 import { ErrorAlert } from '../components/common/ErrorAlert'
+import { OptimizationPanel } from '../features/workflows/components/OptimizationPanel'
 import { formatPromptTimestamp } from '../features/prompt-requests/formatters'
 import { usePromptRequestQuery } from '../features/prompt-requests/hooks'
 import {
@@ -292,13 +293,9 @@ export function PromptRequestDetailPage() {
             </dl>
           </section>
 
-          <section aria-label="AI optimizasyon durumu bilgilendirmesi" className="rounded-2xl border border-slate-800/90 bg-slate-900/50 p-5">
-            <p className="text-sm leading-relaxed text-slate-400">
-              Bu kayıt, isteğini ve tercihlerini içerir. AI optimizasyonu henüz etkin değildir.
-            </p>
-          </section>
         </div>
       </div>
+      <OptimizationPanel key={record.id} promptRequestId={record.id} />
     </div>
   )
 }

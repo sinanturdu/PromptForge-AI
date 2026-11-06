@@ -1,5 +1,9 @@
 # Frontend workflow foundation — M5F-4A
 
+M5F-4B now connects this foundation to [explicit creation/start controls on saved prompt details](frontend-workflow-creation.md).
+The M5F-4A inventory below records the original foundation boundary. Saving remains
+independent, while live progress and detailed result screens are still future work.
+
 ## Existing application and scope
 
 React 19 / Vite 8 / strict TypeScript use BrowserRouter (`/`, `/history`,
@@ -170,7 +174,7 @@ test backend forces both workflow flags off even if inherited; the new SPA test 
 the production verified startup with scripted fake composition and its own disposable
 database/port. Neither test uses the development database or real provider credentials.
 
-M5F-4B/4C/4D still own creation controls, progress polling UX and results presentation.
+M5F-4B now supplies creation/start controls; M5F-4C/4D still own progress polling UX and results presentation.
 One trusted local process/instance remains mandatory. Public deployment, proxies,
 containers, additional listeners, authentication, durable delivery/replay and real-model
 quality are not qualified by these offline tests. No existing optimizer, migration,
