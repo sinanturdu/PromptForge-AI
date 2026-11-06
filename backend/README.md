@@ -340,6 +340,13 @@ Merkezi hata yakalayıcılar (`app/api/error_handlers.py`) tüm HTTP hataların�
 
 ## Mevcut Sınırlamalar ve Gelecek Genişleme Noktaları
 
+M5F-1 adds [workflow API contracts and activation/security design](../docs/workflow-api-contracts.md).
+`WORKFLOW_API_ENABLED` and `WORKFLOW_EXECUTION_ENABLED` default to `false`; execution
+requires both. These reserved settings do not register routes, initialize workflow
+writers or dispatch work, even when enabled. Current prompt-request APIs are unchanged.
+Future unauthenticated workflow activation must remain loopback-only and explicitly
+qualify the connected SQLite runtime before any persistent write.
+
 ### Mevcut Sınırlamalar (M5E-2)
 
 - İstek hız sınırlama (rate limiting), dağıtık izleme (OpenTelemetry/Sentry) ve kullanıcı kimlik doğrulama ilk MVP M3C-2 kapsamı dışındadır (`ADR-008`).

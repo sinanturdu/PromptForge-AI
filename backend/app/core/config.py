@@ -2,9 +2,9 @@
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Final, Literal
+from typing import Final, Literal, Self
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import ArgumentError
@@ -65,6 +65,26 @@ class Settings(BaseSettings):
     database_url: str = Field(default_factory=_default_database_url)
     database_connect_timeout: float = Field(default=30.0, gt=0.0)
     database_echo: bool = False
+
+    # Reserved for explicit future composition. These flags do not register routes,
+    # provision a database or construct the opt-in persistent workflow writer.
+    workflow_api_enabled: bool = False
+    workflow_execution_enabled: bool = False
+
+    @field_validator("workflow_api_enabled", "workflow_execution_enabled", mode="before")
+    @classmethod
+    def validate_workflow_flags(cls, value: object) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str) and value.lower() in {"true", "false"}:
+            return value.lower() == "true"
+        raise ValueError("Workflow feature flags must be true or false.")
+
+    @model_validator(mode="after")
+    def validate_workflow_activation(self) -> Self:
+        if self.workflow_execution_enabled and not self.workflow_api_enabled:
+            raise ValueError("Workflow execution requires explicit workflow API activation.")
+        return self
 
     @field_validator("log_level", mode="before")
     @classmethod
