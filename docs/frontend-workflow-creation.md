@@ -1,5 +1,9 @@
 # Prompt creation and explicit optimization — M5F-4B
 
+M5F-4C adds the [read-only progress monitor](frontend-workflow-progress.md) alongside
+these controls. Its polling and URL selection do not alter creation identity, start
+authorization or uncertain-submission locks. The inventory below records M5F-4B behavior.
+
 ## User flow
 
 NewPromptPage keeps the existing form, validation, preferences and Save action. Saving
@@ -119,7 +123,7 @@ Linux TIME_WAIT rebinding when multiple same-origin cases run sequentially witho
 changing production socket policy or adding delays/retries. Runtime, identity and
 exclusive listener checks remain in place. The original E2E assertions are retained.
 
-M5F-4C still owns live progress/polling UX; M5F-4D owns detailed results/history. Exact
+M5F-4C now supplies live progress/polling UX; M5F-4D still owns detailed results/history. Exact
 capability discovery, public/multi-user deployment, durable HTTP delivery and automatic
 recovery/replay remain outside this package. Offline fake tests establish contract and
 interaction behavior, not model quality or exactly-once external billing.

@@ -1,28 +1,28 @@
 import { useId, type FormEvent } from 'react'
-import { Link } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { ROUTES } from '../../../app/routes'
 import { ErrorAlert } from '../../../components/common/ErrorAlert'
-import type { WorkflowStatus } from '../contracts'
-import { hasTrustedState } from '../attempts'
 import { useOptimization } from '../useOptimization'
+import { WorkflowMonitor } from './WorkflowMonitor'
 
 const button = 'inline-flex min-h-11 items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-50'
 const primary = `${button} bg-indigo-600 text-white hover:bg-indigo-500`
 const secondary = `${button} border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800`
-const labels: Readonly<Record<WorkflowStatus, string>> = {
-  PENDING: 'Başlatılmayı bekliyor', GENERATING: 'Prompt hazırlanıyor', EVALUATING: 'Prompt değerlendiriliyor',
-  REVISING: 'Prompt gözden geçiriliyor', COMPLETED: 'Yürütme tamamlandı; kalite durumu ayrıca değerlendirilir',
-  FAILED: 'Yürütme başarısız oldu', CLARIFICATION_REQUIRED: 'Açıklama gerekiyor',
-}
 
 export function OptimizationPanel({ promptRequestId }: { readonly promptRequestId: string }) {
-  const ui = useOptimization(promptRequestId)
+  const [search, setSearch] = useSearchParams()
+  function monitor(workflowId: string) {
+    const next = new URLSearchParams(search)
+    next.set('workflow', workflowId)
+    setSearch(next, { replace: true })
+  }
+  const ui = useOptimization(promptRequestId, monitor)
   const sectionId = useId()
   const roundsId = useId()
   const workflowId = ui.attempt?.workflowId
   function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); void ui.create() }
 
-  return (
+  return (<>
     <section aria-labelledby={`${sectionId}-heading`} className="min-w-0 space-y-5 rounded-2xl border border-indigo-500/25 bg-slate-900/60 p-5 sm:p-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-2">
@@ -75,7 +75,8 @@ export function OptimizationPanel({ promptRequestId }: { readonly promptRequestI
           {ui.attempt?.start === 'accepted' ? <div role="status" aria-live="polite" className="space-y-2 rounded-xl border border-indigo-400/40 bg-indigo-950/40 p-4 text-sm text-indigo-100">
             <p className="font-semibold">Optimizasyon isteği kabul edildi.</p>
             <p>İşlem arka planda sürer. Bu kabul, tamamlandığı veya kalite koşullarını sağladığı anlamına gelmez.</p>
-            <p>Canlı ilerleme ve ayrıntılı sonuç ekranı sonraki aşamada eklenecek. Şimdilik kayıtlı durumu elle kontrol edebilirsin.</p>
+            <a href="#workflow-monitor" className="inline-flex min-h-11 items-center underline underline-offset-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">Canlı İlerlemeyi Görüntüle</a>
+            <p>Aşağıdaki ilerleme alanı kalıcı durumu okur; ayrıntılı sonuç ekranı sonraki aşamada eklenecek.</p>
             <Link to={ROUTES.promptHistory} className="inline-flex min-h-11 items-center underline underline-offset-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">Prompt Geçmişine Git</Link>
           </div> : ui.attempt?.start === 'unknown' && ui.action === 'start' ? <p role="status" className="text-sm text-slate-200">Başlatma yanıtı bekleniyor...</p>
             : ui.attempt?.start === 'unknown' ? <div role="status" aria-live="polite" className="space-y-2 rounded-xl border border-amber-500/40 bg-amber-950/30 p-4 text-sm text-amber-100">
@@ -83,21 +84,19 @@ export function OptimizationPanel({ promptRequestId }: { readonly promptRequestI
             <p>Sunucu isteği kabul etmiş olabilir. Yeniden başlatma gönderilmeyecek; yalnızca kayıtlı durumu kontrol et. Sayfadan ayrılmak sunucudaki işlemi iptal etmez.</p>
           </div> : null}
           <div className="flex flex-wrap gap-3">
+            <button type="button" className={secondary} onClick={() => monitor(workflowId!)}>İlerlemeyi Görüntüle</button>
             <button type="button" className={primary} disabled={ui.busy || ui.storageBlocked || ui.startBlocked}
               onClick={() => { void ui.start() }}>{ui.action === 'start' ? 'Başlatma kontrol ediliyor...' : 'Optimizasyonu Başlat'}</button>
             <button type="button" className={secondary} disabled={ui.busy} onClick={() => { void ui.inspect() }}>
               {ui.action === 'read' ? 'Durum okunuyor...' : 'Kayıtlı Durumu Kontrol Et'}
             </button>
           </div>
-          {ui.snapshot ? <div role="status" aria-live="polite" className="space-y-2 rounded-xl border border-slate-700 p-4 text-sm text-slate-200">
-            <p>Son okunan kayıtlı durum: {labels[ui.snapshot.workflow.status]}.</p>
-            {!hasTrustedState(ui.snapshot) ? <p className="text-amber-200">Kaydın bütünlüğü veya önceki işlem sonucu incelenmeli. Yeni başlatma yapılmayacak.</p> : null}
-            <p className="text-xs text-slate-400">Bu bilgi tek bir okumadan gelir; canlı güncellenmez.</p>
-          </div> : null}
           {ui.canBeginNew ? <button type="button" className={secondary} disabled={ui.busy || ui.storageBlocked} onClick={ui.configureNew}>Yeni Workflow Yapılandır</button> : null}
         </div>}
         {ui.error && !ui.storageBlocked ? <ErrorAlert {...ui.error} /> : null}
       </div> : null}
     </section>
-  )
+    <WorkflowMonitor parentId={promptRequestId} defaultWorkflowId={workflowId}
+      followDefault={ui.action !== 'start' && (ui.attempt?.start === 'accepted' || ui.attempt?.start === 'unknown')} />
+  </>)
 }

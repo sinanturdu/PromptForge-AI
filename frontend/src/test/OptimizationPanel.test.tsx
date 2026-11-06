@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { HttpResponse, http } from 'msw'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -53,6 +53,7 @@ beforeEach(() => {
       reads += 1
       return HttpResponse.json(stored)
     }),
+    http.get('/api/v1/runs/:id', () => HttpResponse.json(stored.workflow)),
   )
 })
 afterEach(() => { sessionStorage.clear(); vi.restoreAllMocks() })
@@ -253,7 +254,7 @@ describe('explicit saved prompt optimization', () => {
     await user.click(await screen.findByRole('button', { name: 'Yeni Workflow Yapılandır' }))
     expect(creates).toHaveLength(1)
     await user.click(screen.getByRole('button', { name: 'Workflow Oluştur' }))
-    await screen.findByText(RUN)
+    await within(screen.getByRole('region', { name: 'Prompt Optimizasyonu' })).findByText(RUN)
     expect(creates).toHaveLength(2)
     expect(creates[1]!.client_idempotency_key).not.toBe(firstKey)
     expect(getRecordedPostPayloads()).toHaveLength(0)

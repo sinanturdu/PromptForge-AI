@@ -62,9 +62,20 @@ export function startWorkflow(workflowId: string, payload: wire.WorkflowStartReq
     { expected_revision: payload.expected_revision })
 }
 export const getWorkflowProgress = (workflowId: string, signal?: AbortSignal, parentId?: string) =>
-  request(scoped(workflowPath(workflowId), parentId), wire.progressResponse, [200], signal)
+  request(scoped(workflowPath(workflowId), parentId), value => {
+    const row = wire.progressResponse(value)
+    if (row.id.toLowerCase() !== id(workflowId).toLowerCase() ||
+      (parentId && row.prompt_request_id.toLowerCase() !== id(parentId).toLowerCase())) throw new Error()
+    return row
+  }, [200], signal)
 export const getWorkflowMetadataHistory = (workflowId: string, signal?: AbortSignal, parentId?: string) =>
-  request(scoped(`${workflowPath(workflowId)}/history`, parentId), wire.metadataResponse, [200], signal)
+  request(scoped(`${workflowPath(workflowId)}/history`, parentId), value => {
+    const row = wire.metadataResponse(value)
+    if (row.workflow.id.toLowerCase() !== id(workflowId).toLowerCase() ||
+      (parentId && row.workflow.prompt_request_id.toLowerCase() !== id(parentId).toLowerCase()) ||
+      row.operations.some(operation => operation.workflow_run_id.toLowerCase() !== id(workflowId).toLowerCase())) throw new Error()
+    return row
+  }, [200], signal)
 export const getWorkflowContentHistory = (workflowId: string, signal?: AbortSignal, parentId?: string) =>
   request(scoped(`${workflowPath(workflowId)}/history/content`, parentId), wire.contentResponse, [200], signal)
 export const getWorkflowResult = (workflowId: string, signal?: AbortSignal, parentId?: string) =>
@@ -87,5 +98,9 @@ export function listWorkflows(parentId: string, params: wire.WorkflowListParams 
     query.set('before_created_at', params.before.created_at)
     query.set('before_workflow_run_id', id(params.before.workflow_run_id))
   }
-  return request(`${parentPath(parentId)}${query.size ? `?${query}` : ''}`, wire.listResponse, [200], signal)
+  return request(`${parentPath(parentId)}${query.size ? `?${query}` : ''}`, value => {
+    const page = wire.listResponse(value)
+    if (page.items.some(row => row.prompt_request_id.toLowerCase() !== id(parentId).toLowerCase())) throw new Error()
+    return page
+  }, [200], signal)
 }

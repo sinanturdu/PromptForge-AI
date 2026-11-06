@@ -1,8 +1,12 @@
 # Frontend workflow foundation — M5F-4A
 
+M5F-4C now supplies [safe polling and persisted progress](frontend-workflow-progress.md)
+on the existing detail route. Shared default query definitions remain non-polling;
+only the selected, visible monitor opts into the bounded read-only polling policy.
+
 M5F-4B now connects this foundation to [explicit creation/start controls on saved prompt details](frontend-workflow-creation.md).
 The M5F-4A inventory below records the original foundation boundary. Saving remains
-independent, while live progress and detailed result screens are still future work.
+independent. Live progress is now provided by M5F-4C; detailed results remain M5F-4D work.
 
 ## Existing application and scope
 

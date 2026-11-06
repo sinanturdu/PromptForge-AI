@@ -1,10 +1,16 @@
 # PromptForge AI — Frontend
 
+**M5F-4C:** [Live persisted workflow progress](../docs/frontend-workflow-progress.md)
+is available on prompt details. A selected/accepted run is monitored with one visible
+two-second GET poller, terminal/error stopping and manual refresh. `?workflow=<UUID>`
+restores selection; bounded cursor pages allow read-only viewing of previous runs.
+Unknown-start locks remain intact. Detailed result/history rendering is still M5F-4D.
+
 **M5F-4B:** Saved prompt details now offer explicit configure → create workflow → start
 actions, with a 1–3 round limit, safe retry identity and a 202 acknowledgment. Save
 still only saves. [UI behavior and recovery limits](../docs/frontend-workflow-creation.md)
 cover session-only attempt metadata, unknown starts, manual status inspection and tests.
-No live progress or detailed results UI is added yet.
+The creation/start controls remain separate from the progress monitor and detailed results.
 
 React 19, TypeScript (`strict`), Vite 8, Tailwind CSS v4, React Router ve TanStack Query ile geliştirilmiş kullanıcı arayüzü. Genel sistem mimarisi için bkz. [`../docs/architecture.md`](../docs/architecture.md).
 
@@ -16,7 +22,7 @@ workflow proxy paths; cross-origin execution is unsupported. Both backend flags 
 default-off. The guide covers private-runtime startup, cancellation, Query definitions,
 idempotency, uncertainty and offline verification.
 
-## Mevcut Durum (Milestone 4B-1 ve 4B-2 — Uygulandı; 4C-1 — UI/UX İyileştirmeleri)
+## Milestone 4B–4C: Tarihsel Özellik Özeti
 
 - **Özellik tabanlı (feature-based) mimari:** `src/app/`, `src/pages/`, `src/features/prompt-requests/`, `src/components/` ve `src/lib/` katman ayrımı
 - **Duyarlı (Responsive) Üst Gezinme Çubuğu (`AppHeader`):** Masaüstü, tablet ve mobil ekranlarda gizlenmeden erişilebilen, klavye uyumlu ve aktif rotayı vurgulayan `Yeni Prompt` (`/`) ve `Prompt Geçmişi` (`/history`) bağlantıları
@@ -27,8 +33,8 @@ idempotency, uncertainty and offline verification.
 - **Merkezi Tipli API İstemcisi (`src/lib/api-client.ts`):** RFC 9457 `application/problem+json` ayrıştırma, alan bazlı `422` doğrulama hatalarını gösterme, sorun giderme için `X-Request-ID` başlığını koruma ve güvenli Türkçe kullanıcı geri bildirimi
 - **Otomatik Doğrulama Altyapısı:** ESLint, TypeScript `strict`, Vitest + React Testing Library + MSW test paketi (38 otomatik test)
 
-> **Önemli Not (Mevcut Sınırlamalar):**
-> - **AI prompt optimizasyonu henüz aktif değildir.** Kaydedilen hedef model ve akıl yürütme tercihleri gelecekteki derleme/değerlendirme aşamaları için saklanır; herhangi bir LLM sağlayıcısı çalıştırılmaz, otomatik prompt üretilmez ve değerlendirme puanı hesaplanmaz (Milestone 5–8.6 kapsamında eklenecektir).
+> **Önemli Not (Güncel Sınırlamalar):**
+> - **Kaydetmek optimizasyon başlatmaz.** M5F workflow yürütmesi varsayılan olarak kapalıdır; doğrulanmış yerel runtime, açık backend ayarları ve ayrı kullanıcı başlatması gerekir. Yukarıdaki M5F kılavuzları güncel optimizasyon ve izleme davranışını açıklar.
 > - **Salt okunur geçmiş:** Bu aşamada geçmiş kayıtları üzerinde silme, düzenleme, çoğaltma veya arşivleme işlemleri bulunmaz.
 > - **Milestone 4B-2 tamamlandı:** Sunucu taraflı anahtar kelime araması (`q`, yaklaşık 350 ms debounce), hedef AI ailesi filtresi (`target_mode`) ve sayfalama durumu URL ile eşgüdümlüdür; detaydan dönüşte korunur.
 
@@ -147,7 +153,7 @@ Linux CI için Chromium sistem bağımlılıkları da gerekir: `npx playwright i
 `frontend/` dizininden:
 
 ```sh
-npm run test:e2e                     # Tüm 16 Chromium testi
+npm run test:e2e                     # Tüm Chromium testleri
 npm run test:e2e -- --repeat-each=3   # Kararlılık kontrolü
 npm run test:e2e:ui                  # Etkileşimli Playwright test arayüzü
 npm run test:e2e:report              # Son HTML raporunu aç
@@ -169,11 +175,18 @@ npx playwright show-trace test-results/<test-klasörü>/trace.zip
 
 ### Kapsam ve hata çıktıları
 
-Toplam **16 test** bulunur:
+Temel kayıt/geçmiş kapsamındaki **16 test** korunur:
 
 - `smoke.spec.ts` — Önceki dört test: başlangıç, gezinme, mobil temel kontroller ve boş geçmiş. Assertions korunmuştur; yalnızca ortak fixture import edilir.
 - `prompt-workflow.spec.ts` — Altı test: tüm tercihlerle tarayıcıdan kayıt, reload ve yeni browser context üzerinden kalıcılık, boş ve yalnızca boşluk içeren girdilerin POST/veritabanı kaydı oluşturmadan reddedilmesi, geçmişten doğru detaya gidip dönme ve 375 × 812 mobil kayıt/arama/filtre/detay akışı.
 - `history-filters.spec.ts` — Altı test: prompt ve proje bağlamında anahtar kelime araması, eşleşmeyen sonuçlar, ChatGPT/GPT–Claude–Gemini filtreleri (Universal dahil kontrol verileriyle), birleşik arama/hedef filtresi, URL parametre sırasından bağımsız doğrudan bağlantı, reload, Geri/İleri, tekil/tüm filtre temizleme ve filtreli sayfalama/detaydan dönüş.
+
+M5F ile toplam **24 Chromium testi** çalışır: `same-origin.spec.ts` bir aynı-origin testi,
+`optimization-ui.spec.ts` iki masaüstü/mobil oluşturma-başlatma testi ve
+`workflow-progress.spec.ts` beş kontrollü ilerleme/yenileme/kesinti testi ekler.
+Workflow testleri doğrulanmış Python/SQLite runtime gerektirir; özel yorumlayıcıyı
+`PROMPTFORGE_E2E_PYTHON` ile seçin. Bağlı SQLite sürümü güvenli değilse test başlatma
+başarısız olur. Kurulum ve yerel runtime ayrıntıları için [entegrasyon kılavuzuna](../docs/frontend-workflow-integration.md) bakın.
 
 Testler gerçek FastAPI ve Alembic ile hazırlanmış SQLite veritabanını kullanır; MSW, sahte başarılı API yanıtları veya sabit beklemeler kullanılmaz. E2E kapsamı için ek paket veya ortam önkoşulu eklenmemiştir. Tam suite’i üç bağımsız kez çalıştırmak için `npm run test:e2e` komutunu üç kez çalıştırın; `--repeat-each=3` de her testi üç kez yeni veritabanında çalıştırır.
 

@@ -3,6 +3,7 @@ import * as api from './api'
 import { isTerminal, type WorkflowCreateRequest, type WorkflowListParams, type WorkflowProgress,
   type WorkflowStartRequest } from './contracts'
 import { WorkflowClientError } from './errors'
+import { workflowRead } from './readDeadline'
 
 export const workflowKeys = {
   all: ['workflows'] as const,
@@ -22,11 +23,19 @@ const readDefaults = { retry: false, refetchInterval: false, refetchOnWindowFocu
   refetchIntervalInBackground: false, gcTime: 0 } as const
 export const workflowProgressQuery = (id: string, parentId?: string) => queryOptions({
   ...readDefaults, queryKey: workflowKeys.progress(id, parentId),
-  queryFn: ({ signal }) => api.getWorkflowProgress(id, signal, parentId),
+  queryFn: ({ signal }) => workflowRead(signal, bounded => api.getWorkflowProgress(id, bounded, parentId)),
+})
+export const workflowMonitoringQuery = (id: string, parentId: string, enabled: boolean) => queryOptions({
+  ...workflowProgressQuery(id, parentId), enabled: query => enabled && query.state.status !== 'error', staleTime: 2000,
+  refetchOnMount: false, refetchOnReconnect: false, networkMode: 'always',
+  // One observer owns one timer. Wait for each read to finish before scheduling
+  // another; the first read error stops automatic traffic until a manual refresh.
+  refetchInterval: query => query.state.status === 'error' || query.state.fetchStatus === 'fetching'
+    ? false : progressPollingInterval(query.state.data),
 })
 export const workflowMetadataQuery = (id: string, parentId?: string) => queryOptions({
   ...readDefaults, queryKey: workflowKeys.metadata(id, parentId),
-  queryFn: ({ signal }) => api.getWorkflowMetadataHistory(id, signal, parentId),
+  queryFn: ({ signal }) => workflowRead(signal, bounded => api.getWorkflowMetadataHistory(id, bounded, parentId)),
 })
 export const workflowContentQuery = (id: string, parentId?: string) => queryOptions({
   ...readDefaults, queryKey: workflowKeys.content(id, parentId),
@@ -38,7 +47,7 @@ export const workflowResultQuery = (id: string, parentId?: string) => queryOptio
 })
 export const workflowListQuery = (parentId: string, params: WorkflowListParams = {}) => queryOptions({
   ...readDefaults, queryKey: workflowKeys.list(parentId, params),
-  queryFn: ({ signal }) => api.listWorkflows(parentId, params, signal),
+  queryFn: ({ signal }) => workflowRead(signal, bounded => api.listWorkflows(parentId, params, bounded)),
 })
 export function progressPollingInterval(value: WorkflowProgress | undefined): number | false {
   return value && !isTerminal(value.status) && value.history_valid && !value.records_truncated &&

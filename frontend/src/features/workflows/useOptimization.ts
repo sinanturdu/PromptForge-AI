@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { observeWorkflowOutcome } from './availability'
 import { isTerminal } from './contracts'
 import { WorkflowClientError } from './errors'
-import { workflowCreateMutation, workflowMetadataQuery, workflowStartMutation } from './queries'
+import { workflowCreateMutation, workflowKeys, workflowMetadataQuery, workflowStartMutation } from './queries'
+import type { WorkflowMetadataHistory } from './contracts'
 import { AttemptStorageError, canSubmit, definitiveStartRejection, hasTrustedState,
   newAttempt, readAttempt, writeAttempt, type RoundLimit, type WorkflowAttempt } from './attempts'
 
@@ -24,7 +25,7 @@ function failure(error: unknown, operation: 'create' | 'start' | 'read'): Failur
   }
 }
 
-export function useOptimization(parentId: string) {
+export function useOptimization(parentId: string, onMonitor?: (workflowId: string) => void) {
   const client = useQueryClient()
   const [initial] = useState(() => {
     try { return { attempt: readAttempt(parentId), blocked: false } }
@@ -75,6 +76,11 @@ export function useOptimization(parentId: string) {
     lock.current = false
     if (mounted.current) setAction(null)
   }
+  function monitor(snapshot?: WorkflowMetadataHistory) {
+    if (!mounted.current || !current.current?.workflowId) return
+    if (snapshot) client.setQueryData(workflowKeys.progress(current.current.workflowId, parentId), snapshot.workflow)
+    onMonitor?.(current.current.workflowId)
+  }
 
   async function create() {
     if (storageBlocked || current.current?.workflowId || !begin('create')) return
@@ -102,8 +108,8 @@ export function useOptimization(parentId: string) {
   async function inspect() {
     if (!attempt?.workflowId || !begin('read')) return
     try {
-      await inspection.refetch({ throwOnError: true })
-      if (mounted.current) setShowInspection(true)
+      const result = await inspection.refetch({ throwOnError: true, cancelRefetch: false })
+      if (mounted.current) { setShowInspection(true); monitor(result.data) }
     } catch (caught) { report(caught, 'read') }
     finally { end() }
   }
@@ -120,6 +126,7 @@ export function useOptimization(parentId: string) {
       if (!mounted.current) return
       if (!snapshot.data || !canSubmit(snapshot.data)) {
         setShowInspection(true)
+        monitor(snapshot.data)
         setError({ title: 'Başlatma yapılmadı',
           message: 'Kayıtlı workflow şu anda başlatılmaya uygun değil. Çalışan, sonlanmış veya sonucu belirsiz işlemler yeniden başlatılmaz.' })
         return
@@ -135,7 +142,7 @@ export function useOptimization(parentId: string) {
         try { commit({ ...pending, start: 'rejected' }) }
         catch (storageError) { report(storageError, 'start'); return }
         if (caught.status === 409 && mounted.current) {
-          try { await inspection.refetch({ throwOnError: true }); if (mounted.current) setShowInspection(true) }
+          try { const result = await inspection.refetch({ throwOnError: true }); if (mounted.current) { setShowInspection(true); monitor(result.data) } }
           catch { /* Preserve the original sanitized conflict; manual GET remains available. */ }
         }
       }
@@ -145,7 +152,7 @@ export function useOptimization(parentId: string) {
         setError({ ...detail, title: 'Başlatma yapılmadı',
           message: `Durum doğrulanamadı; başlatma isteği gönderilmedi. ${detail.message}` })
       }
-    } finally { end() }
+    } finally { end(); if (submitted) monitor() }
   }
 
   const snapshot = showInspection ? inspection.data : undefined

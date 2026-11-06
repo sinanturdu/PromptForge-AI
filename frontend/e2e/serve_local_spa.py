@@ -1,5 +1,6 @@
 """Test-only composition: migrated disposable SQLite, scripted fake, real owned SPA listener."""
 
+import asyncio
 import os
 import sys
 import tempfile
@@ -37,9 +38,37 @@ def main() -> None:
     from app.core.execution_startup import ExecutionModels, prepare_execution_startup
     from app.core.local_spa import install_local_spa
     from app.db.migrations import build_alembic_config
+    from app.llm.errors import LLMError, LLMErrorCode
     from app.llm.providers.fake import FakeLLMProvider
-    from app.llm.schemas import ModelSettings
-    from workflow_read_fixtures import script
+    from app.llm.schemas import LLMRequest, LLMResponse, ModelSettings
+    from workflow_read_fixtures import architect, script
+
+    scenario = sys.argv[3] if len(sys.argv) > 3 else "early"
+    controlled = len(sys.argv) > 4 and sys.argv[4] == "controlled"
+    if scenario not in {"early", "three-round", "failed", "clarify"}:
+        raise RuntimeError("Invalid offline SPA scenario.")
+    values = (
+        [LLMErrorCode.AUTHENTICATION]
+        if scenario == "failed"
+        else [architect("clarify")]
+        if scenario == "clarify"
+        else script(
+            ["bad", "critical", "qualified"] if scenario == "three-round" else ["qualified"]
+        )
+    )
+
+    class ControlledFake(FakeLLMProvider):
+        started: int = 0
+
+        async def generate(self, request: LLMRequest) -> LLMResponse:
+            self.started += 1
+            print(f"PROMPTFORGE_SPA_E2E_CALL={self.started}", flush=True)
+            if controlled:
+                # Parent-owned stdin barrier, never an HTTP control endpoint.
+                command_line = await asyncio.to_thread(sys.stdin.readline)
+                if command_line.strip() != "release":
+                    raise LLMError(LLMErrorCode.SCRIPT_EXHAUSTED)
+            return await super().generate(request)
 
     class E2ESettings(Settings):
         model_config = SettingsConfigDict(env_file=None)
@@ -60,7 +89,7 @@ def main() -> None:
         ),
     )
     with (
-        patch("app.main.create_provider", return_value=FakeLLMProvider(script(["qualified"]))),
+        patch("app.main.create_provider", return_value=ControlledFake(values)),
         prepare_local_execution_server(app, port=0) as original,
     ):
         print(f"PROMPTFORGE_SPA_E2E_PORT={original.socket.getsockname()[1]}", flush=True)
