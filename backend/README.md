@@ -340,6 +340,12 @@ Merkezi hata yakalayıcılar (`app/api/error_handlers.py`) tüm HTTP hataların�
 
 ## Mevcut Sınırlamalar ve Gelecek Genişleme Noktaları
 
+M5F-4A adds optional [built React SPA serving](../docs/frontend-workflow-integration.md)
+through the same verified execution listener: add `--frontend-dist '..\frontend\dist'`
+to the dedicated command after `npm run build`. This installs explicit browser/asset
+routes, never an API catch-all. It does not change ordinary startup, flags, CORS,
+workflow security or optimizer behavior. No new workflow interface is activated yet.
+
 M5F-3C adds exactly two [secure local workflow POST operations](../docs/workflow-api-contracts.md):
 create `/api/v1/prompt-requests/{id}/runs` (201 new / 200 exact keyed replay), then
 start `/api/v1/runs/{id}/execution` (202 supervised task acceptance). Poll the Location

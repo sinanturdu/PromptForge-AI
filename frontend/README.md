@@ -2,6 +2,14 @@
 
 React 19, TypeScript (`strict`), Vite 8, Tailwind CSS v4, React Router ve TanStack Query ile geliştirilmiş kullanıcı arayüzü. Genel sistem mimarisi için bkz. [`../docs/architecture.md`](../docs/architecture.md).
 
+**M5F-4A:** [Typed workflow client and secure same-origin setup](../docs/frontend-workflow-integration.md)
+are available as a shared foundation. Existing pages do not start optimization yet.
+For workflow API access, build with `npm run build` and serve dist using the verified
+backend command's explicit `--frontend-dist` option. Ordinary Vite development blocks
+workflow proxy paths; cross-origin execution is unsupported. Both backend flags remain
+default-off. The guide covers private-runtime startup, cancellation, Query definitions,
+idempotency, uncertainty and offline verification.
+
 ## Mevcut Durum (Milestone 4B-1 ve 4B-2 — Uygulandı; 4C-1 — UI/UX İyileştirmeleri)
 
 - **Özellik tabanlı (feature-based) mimari:** `src/app/`, `src/pages/`, `src/features/prompt-requests/`, `src/components/` ve `src/lib/` katman ayrımı
@@ -59,11 +67,11 @@ Tarayıcıda `http://127.0.0.1:5173` adresini açarak uygulamayı kullanabilirsi
 
 ## Geliştirme API Proxy Yapılandırması ve Üretim Sınırlamaları
 
-- **Yerel Geliştirme Proxy'si (`vite.config.ts`):** `npm run dev` çalışırken tarayıcıdan `/api/v1/*` adresine yapılan istekler Vite geliştirme sunucusu tarafından otomatik olarak `http://127.0.0.1:8000` adresindeki FastAPI sunucusuna yönlendirilir. Böylece yerel geliştirmede gereksiz CORS karmaşası oluşmaz.
+- **Yerel Geliştirme Proxy'si (`vite.config.ts`):** `npm run dev` mevcut PromptRequest ve health isteklerini yerel FastAPI sunucusuna iletir. Workflow yolları proxy öncesinde 403 ile engellenir; workflow erişimi derlenmiş SPA'nın doğrulanmış backend origin'inden sunulmasını gerektirir.
 - **Üretim (Production) Dağıtım Sınırlamaları:**
   1. Vite `server.proxy` ayarı **yalnızca yerel geliştirme sunucusunda (`npm run dev`) çalışır**; `npm run build` ile üretilen statik `dist/` dosyalarında yer almaz.
-  2. Üretim ortamında ya aynı origin üzerinde `/api/*` isteklerini FastAPI servisine ileten bir ters vekil sunucu (ör. Nginx, Caddy, bulut yük dengeleyici) kullanılmalı ya da ayrı origin kullanılıyorsa backend tarafında uygun CORS politikası tanımlanıp derleme sırasında `VITE_API_BASE_URL` ayarlanmalıdır.
-  3. `/history` ve `/prompt-requests/:id` gibi istemci taraflı rotalarda tarayıcı yenilemesinin (`F5`) çalışması için statik dosya sunucusunun bilinmeyen uygulama rotalarında `index.html` (SPA history fallback) döndürmesi gerekir.
+  2. Workflow erişimi için derlenmiş SPA, doğrulanmış yerel backend üzerinden `--frontend-dist` ile aynı origin'de sunulur. Genel/açık dağıtım, ters vekil veya izin verici CORS bu güvenlik modeli tarafından desteklenmez. Eski `VITE_API_BASE_URL` seçeneği workflow istemcisine uygulanmaz.
+  3. Doğrulanmış sunucu `/history` ve `/prompt-requests/:id` gibi açıkça izin verilen tarayıcı rotalarında `index.html` döndürür. API, OpenAPI, docs ve bilinmeyen dosya yolları genel SPA fallback tarafından yakalanmaz.
 
 ---
 
@@ -74,7 +82,7 @@ Tarayıcıda `http://127.0.0.1:5173` adresini açarak uygulamayı kullanabilirsi
 | Değişken | Varsayılan | Açıklama |
 |---|---|---|
 | `VITE_API_PROXY_TARGET` | `http://127.0.0.1:8000` | Yalnızca Vite geliştirme sunucusunun `/api` isteklerini yönlendireceği hedef adres. |
-| `VITE_API_BASE_URL` | *(boş)* | Boş bırakıldığında istekler göreli `/api/v1/*` adresine gider (Vite proxy veya aynı-origin ters vekil ile uyumlu). Ayrı origin dağıtımlarında ör. `https://api.ornek.com` olarak tanımlanabilir. |
+| `VITE_API_BASE_URL` | *(boş)* | Yalnızca mevcut PromptRequest istemcisi için eski yapılandırma; workflow istemcisi daima göreli aynı-origin `/api/v1` kullanır. Güvenli yerel SPA derlemesinde boş bırakın. |
 
 > **Güvenlik Uyarısı:** `VITE_` önekli tüm ortam değişkenleri tarayıcıya gönderilen JavaScript paketine gömülür. API anahtarlarını, parolaları veya gizli kimlik bilgilerini **asla** `VITE_*` değişkenlerine yazmayın.
 

@@ -36,25 +36,33 @@ def main() -> None:
 
         import uvicorn
         from alembic import command
+        from pydantic_settings import SettingsConfigDict
 
         from app.core.config import Settings, build_sqlite_url, get_settings
         from app.db.migrations import build_alembic_config
 
         database_url = build_sqlite_url(database)
+
         # Explicit settings override both inherited environment and backend/.env.
-        settings = Settings(
-            _env_file=None,
+        class E2ESettings(Settings):
+            model_config = SettingsConfigDict(env_file=None)
+
+        settings = E2ESettings(
             database_url=database_url,
             api_v1_prefix="/api/v1",
             app_name=sys.argv[2],
             database_echo=False,
             llm_provider="fake",
+            workflow_api_enabled=False,
+            workflow_execution_enabled=False,
         )
         get_settings.cache_clear()
         # app.main creates its module-level app through this cached provider too.
         os.environ["DATABASE_URL"] = database_url
         os.environ["APP_NAME"] = settings.app_name
         os.environ["API_V1_PREFIX"] = settings.api_v1_prefix
+        os.environ["WORKFLOW_API_ENABLED"] = "false"
+        os.environ["WORKFLOW_EXECUTION_ENABLED"] = "false"
 
         command.upgrade(build_alembic_config(database_url), "head")
 

@@ -13,7 +13,11 @@ from app.api.error_handlers import build_problem_response, unhandled_exception_h
 
 def execution_request_is_local(scope: Scope) -> bool:
     """Additional JSON/POST checks for future mutation; this proves no listener binding."""
-    if scope.get("type") != "http" or scope.get("method") != "POST" or not _local_request(scope):
+    if (
+        scope.get("type") != "http"
+        or scope.get("method") != "POST"
+        or not workflow_request_is_local(scope)
+    ):
         return False
     content_types = [v for k, v in scope.get("headers", []) if k.lower() == b"content-type"]
     if len(content_types) != 1:
@@ -29,7 +33,7 @@ def _authority(value: str, scheme: str) -> tuple[str, int] | None:
     return (matched[1], port) if 1 <= port <= 65535 else None
 
 
-def _local_request(scope: Scope) -> bool:
+def workflow_request_is_local(scope: Scope) -> bool:
     client = scope.get("client")
     if client is None or "%" in client[0]:
         return False
@@ -105,7 +109,7 @@ class WorkflowSecurityMiddleware:
             await send(message)
 
         request = Request(scope)
-        if self._enabled and not _local_request(scope):
+        if self._enabled and not workflow_request_is_local(scope):
             response = build_problem_response(
                 request,
                 status_code=403,

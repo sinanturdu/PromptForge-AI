@@ -182,6 +182,9 @@ def main() -> None:
     )
     parser.add_argument("--architect-model", required=True)
     parser.add_argument("--critic-model", required=True)
+    parser.add_argument(
+        "--frontend-dist", type=Path, help="Optional trusted built React dist directory"
+    )
     parser.add_argument("--host", choices=("127.0.0.1", "::1"), default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
@@ -202,6 +205,10 @@ def main() -> None:
     )
     with prepare_local_execution_server(application, host=args.host, port=args.port) as original:
         prepared = prepare_execution_startup(original)
+        if args.frontend_dist is not None:
+            from app.core.local_spa import install_local_spa
+
+            install_local_spa(application, args.frontend_dist, transport=prepared)
         prepared.server.run(sockets=[prepared.socket])
 
 

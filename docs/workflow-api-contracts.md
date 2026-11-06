@@ -1,5 +1,9 @@
 # Workflow API contracts and secure local execution — M5F-1 through M5F-3C
 
+M5F-4A supplies the [typed frontend client and optional same-origin built SPA](frontend-workflow-integration.md).
+The HTTP contracts below are unchanged. Vite is not a workflow execution proxy, and
+no readiness/status endpoint or public/CORS deployment support is added.
+
 ## Implemented boundary and inspected architecture
 
 M5F-1 implements Pydantic contracts, pure allowlisted read projections and two validated
@@ -15,8 +19,10 @@ one provider/gateway through AsyncExitStack. The ordinary SQLite connection hook
 uses WAL/NORMAL on connection; it is not the dedicated persistent writer and must
 not serve this new write path. Provider construction is not a generation request.
 Before M5F-2 only `/health` and PromptRequest create/get/list routes were available.
-Their behavior remains unchanged. The frontend/MSW and Playwright tests use those existing prompt-request
-contracts; none currently invokes the optimizer.
+Their behavior remains unchanged. Existing frontend pages/MSW and the original 16
+Playwright tests retain those PromptRequest contracts. M5F-4A adds a separate built-SPA
+browser test using explicit workflow API calls, the verified listener and scripted fake
+provider; it activates no workflow UI or real-model call.
 
 M5E provides the necessary internal behavior:
 
