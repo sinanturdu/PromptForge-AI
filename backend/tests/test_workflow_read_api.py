@@ -130,7 +130,7 @@ def test_default_off_has_no_routes_engine_or_database(
 
 
 @pytest.mark.parametrize("execution", [False, True])
-def test_activation_registers_only_gets_with_correct_openapi_and_no_dispatch(
+def test_activation_registers_gets_and_gated_posts_without_dispatch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, execution: bool
 ) -> None:
     provider = FakeLLMProvider()
@@ -140,15 +140,21 @@ def test_activation_registers_only_gets_with_correct_openapi_and_no_dispatch(
     path = tmp_path / "absent" / "read.db"
     with local_client(path, execution=execution) as client:
         schema = client.get("/api/v1/openapi.json").json()
-        assert set(schema["paths"]) == OLD_PATHS | READ_PATHS
+        assert set(schema["paths"]) == OLD_PATHS | READ_PATHS | (
+            {"/api/v1/runs/{id}/execution"} if execution else set()
+        )
         for route in READ_PATHS:
-            assert set(schema["paths"][route]) == {"get"}
+            assert set(schema["paths"][route]) == (
+                {"get", "post"} if execution and route.endswith("/runs") else {"get"}
+            )
             operation = schema["paths"][route]["get"]
             assert "application/problem+json" in operation["responses"]["422"]["content"]
             assert "HTTPValidationError" not in json.dumps(operation)
         for path_part in (f"/runs/{uuid4()}/execution", f"/prompt-requests/{uuid4()}/runs"):
             response = client.post("/api/v1" + path_part, json={})
-            protected(response, 404 if path_part.endswith("execution") else 405)
+            protected(
+                response, 503 if execution else 404 if path_part.endswith("execution") else 405
+            )
         assert provider.calls == 0
         assert not path.parent.exists()
     assert provider.closed

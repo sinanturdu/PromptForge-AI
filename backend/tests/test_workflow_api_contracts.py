@@ -116,15 +116,22 @@ def test_flags_gate_read_routes_without_writers_or_database_connections(
                 "/api/v1/runs/{id}/result",
                 "/api/v1/runs/{id}/recovery",
             }
+        if execution_enabled:
+            expected.add("/api/v1/runs/{id}/execution")
         assert set(paths) == expected
         if api_enabled:
-            assert all(set(paths[path]) == {"get"} for path in paths if "runs" in path)
+            posts = {path for path, item in paths.items() if "runs" in path and "post" in item}
+            assert posts == (
+                {"/api/v1/prompt-requests/{id}/runs", "/api/v1/runs/{id}/execution"}
+                if execution_enabled
+                else set()
+            )
         for method, path in [
             ("POST", f"/api/v1/prompt-requests/{uuid4()}/runs"),
             ("POST", f"/api/v1/runs/{uuid4()}/execution"),
         ]:
             response = client.request(method, path, json={})
-            assert response.status_code in {404, 405}
+            assert response.status_code in ({503} if execution_enabled else {404, 405})
             assert response.headers["content-type"].startswith("application/problem+json")
         if not api_enabled:
             assert client.get(f"/api/v1/runs/{uuid4()}").status_code == 404

@@ -1,12 +1,14 @@
-# Workflow API contracts and gated read inspection — M5F-1 / M5F-2
+# Workflow API contracts and secure local execution — M5F-1 through M5F-3C
 
 ## Implemented boundary and inspected architecture
 
 M5F-1 implements Pydantic contracts, pure allowlisted read projections and two validated
-settings. M5F-2 adds the six GET routes below, registered only with
-`WORKFLOW_API_ENABLED=true`. Both flags default off; enabling both still activates
-reads only. No POST workflow route, writer, task, provider dispatch, automatic recovery
-or database migration/provisioning is introduced. Creation/start remain M5F-3 design.
+settings. M5F-2 adds six guarded GET routes. M5F-3A/3B provide admission, qualified
+startup and supervision; M5F-3C connects exactly two POST routes to those resources.
+Both flags default off. GETs require the API flag; POST registration requires both
+flags, and every POST additionally requires the live verified local startup owner.
+Ordinary startup cannot create workflows or execute them, even with both flags true.
+No automatic recovery, database migration/provisioning or frontend activation is added.
 
 The current `main.py` lifespan owns one lazy ordinary DatabaseSessionManager and
 one provider/gateway through AsyncExitStack. The ordinary SQLite connection hook
@@ -24,7 +26,7 @@ M5E provides the necessary internal behavior:
   Conflicting active workflows are rejected by the existing unique index.
 - `claim_workflow()` atomically compares PENDING, revision, ownership, empty token,
   lease and round counters. `execute_persisted_optimizer()` makes this initial claim;
-  a future runner must not pre-claim and then call this entry point a second time.
+  the supervisor must not pre-claim and then call this entry point a second time.
 - The adapter reserves each AgentRun before provider dispatch, closes the transaction,
   stages Architect output, and commits evaluated versions atomically. Its leases,
   state revisions, operation identity and bounded optimizer remain authoritative.
@@ -36,11 +38,11 @@ M5E provides the necessary internal behavior:
   New API code must use them rather than returning raw persistence/provider errors.
 
 ADR-004's `/runs` naming and approximately two-second polling are retained. ADR-005's
-planned in-process runner is still absent. Its original startup interruption mutation
+in-process runner now follows M5F-3B's narrower bounds. Its planned startup interruption mutation
 must not be implemented without a separate recovery/ownership decision: M5E evidence
 does not prove that the former worker stopped or a provider call never happened.
 
-## Endpoint inventory (GETs implemented; POSTs remain planned)
+## Implemented endpoint inventory
 
 All paths below are relative to `/api/v1`. UUID path parameters identify existing
 records; request ownership must be checked in the service scope, never inferred from
@@ -48,8 +50,8 @@ possession of a UUID. No user/principal ownership column exists in this local MV
 
 | Method / path | Request | Response / success | Gates |
 | --- | --- | --- | --- |
-| POST `/prompt-requests/{prompt_request_id}/runs` (planned only) | `WorkflowCreateRequest` | `WorkflowCreateResponse`: 201 new, 200 exact replay; Location `/api/v1/runs/{id}` | API + execution |
-| POST `/runs/{workflow_run_id}/execution` (planned only) | `WorkflowStartRequest` | `WorkflowStartResponse`: 202 only after bounded runner admission; Location points to progress | API + execution |
+| POST `/prompt-requests/{id}/runs` | `WorkflowCreateRequest` | `WorkflowCreateResponse`: 201 new, 200 exact replay; Location `/api/v1/runs/{id}` | API + execution + verified startup |
+| POST `/runs/{id}/execution` | `WorkflowStartRequest` | `WorkflowStartResponse`: 202 after supervised task ownership; Location points to progress | API + execution + verified startup |
 | GET `/runs/{workflow_run_id}` | UUID | `WorkflowProgressResponse`, 200 | API |
 | GET `/prompt-requests/{prompt_request_id}/runs` | `WorkflowHistoryQuery` | `WorkflowHistoryPageResponse`, 200 (including empty pages) | API |
 | GET `/runs/{workflow_run_id}/history` | UUID | `WorkflowMetadataHistoryResponse`, 200 | API |
@@ -78,15 +80,33 @@ returns the existing run, including a terminal run; a changed configuration/sour
 or a different key competing with an active run returns 409 `workflow_conflict`.
 Do not silently substitute an unrelated active run. The create body exposes only
 `max_evaluation_rounds` (1–3, default 3). Protected spans, versions, model settings,
-provider credentials, timeout policy and lease duration remain server-owned.
+provider credentials, timeout policy and lease duration remain server-owned. HTTP
+creation fixes the immutable optimizer deadline at 300 seconds and protected spans
+to an empty tuple. The existing service validates configuration, source snapshot,
+ownership and every configured span in the creation transaction. Client-supplied
+spans/settings are rejected as extra fields. No contract expansion was necessary:
+the required body key already protects retry duplication; an Idempotency-Key header
+does not replace it. Concurrent identical creates serialize through the existing
+SQLite BEGIN IMMEDIATE transaction and return one 201 plus exact 200 replays.
 
 Start requires an explicit nonnegative integer `expected_revision`. The workflow ID
 is the natural execution identity; no new start-idempotency column is invented.
-Duplicate/concurrent starts must not invoke the provider again. A confirmed admission
-may return the same 202 receipt; after an ambiguous admission, return conflict or
-unavailable and direct the caller to poll/readback. Never treat an expired lease,
+Duplicate/concurrent starts do not invoke the provider again: subsequent submissions
+return 409, including local duplicate admission, active/unresolved and terminal state.
+No second 202 is synthesized. After ambiguous HTTP delivery, poll/readback before
+considering another start; the route never automatically resubmits. Never treat an expired lease,
 unresolved reservation or missing Evaluation as permission to start again. The
 existing entry point rejects already claimed/terminal workflows before provider work.
+The route resolves the parent from scoped readback; an optional prompt_request_id
+query assertion returns 404 on mismatch. The supervisor rereads and revalidates that
+scope, revision and graph before atomic reservation and task ownership.
+The 202 workflow identity/status is the pre-admission read snapshot (normally PENDING),
+not a post-claim status. No await follows acceptance in the handler. The live task
+belongs to the application, independent of receipt delivery, disconnect or cancellation.
+202 cannot guarantee durable claim or delivery across a process crash. A failed claim
+prevents provider work; persisted GET state remains authoritative afterward. If claim
+failed without changing PENDING, a later explicit submission must pass all fresh
+checks and the same durable claim; an uncertain claimed operation is never replayed.
 
 History uses `limit` (default 20, max 50) and paired `before_created_at` (timezone-aware)
 and `before_workflow_run_id`. `to_cursor()` returns the existing WorkflowCursor.
@@ -101,8 +121,10 @@ TerminalDetailsStorage's supported reason vocabulary, TokenUsage, VersionSummary
 EvaluationSummary, SelectedEvaluation, CanonicalPrompt, CriticOutput, WorkflowCursor
 and RecoveryAssessment. No parallel scoring, selection or lifecycle policy is added.
 Request models forbid extras and reject coerced round/revision booleans and strings.
-The read contracts appear in FastAPI/OpenAPI only with API activation; creation/start
-schemas remain unpublished because their routes are not registered.
+Read contracts appear in FastAPI/OpenAPI only with API activation. Creation/start
+schemas and exactly two POST operations appear only when both flags are enabled.
+Their documented 503 responses and descriptions make clear that registration is
+conditional availability, not qualification; ordinary Uvicorn remains denied.
 
 Progress includes actual `current_round`, `completed_rounds`, `max_evaluation_rounds`
 and `state_revision`. `stored_best_version_id`, `stored_final_score` and
@@ -142,16 +164,17 @@ in URLs, access logs or tracing context. Recovery proofs are evidence, never aut
 
 Errors retain `application/problem+json`, existing ProblemDetails fields and
 server-generated X-Request-ID. The read router maps expected errors without changing
-global handlers or existing PromptRequest error codes. Write-only codes remain reserved:
+global handlers or existing PromptRequest error codes. POSTs reuse the same sanitized
+route error mapping and M5F-3A AdmissionDecision.to_error():
 
 | HTTP | Condition / error_code |
 | --- | --- |
 | 404 | API routes absent: existing `not_found`; resource absent: `prompt_request_not_found` / `workflow_not_found` |
-| 403 | Failed local request guard: `workflow_access_denied`; future disabled writes: `workflow_execution_disabled` |
+| 403 | Failed peer/Host/origin/forwarding or POST JSON guard: `workflow_access_denied` |
 | 409 | Source/configuration/idempotency/claim conflict: `workflow_conflict`; active result: `workflow_not_terminal`; trusted result blocked: `workflow_integrity_inconsistent` |
 | 422 | Malformed input: existing `validation_error` |
 | 429 | Bounded admission full: `workflow_capacity_exceeded` with safe Retry-After |
-| 503 | Explicit failed runtime preflight: `workflow_runtime_unavailable`; unavailable persistence/admission: `workflow_unavailable` |
+| 503 | Missing/lost owned listener: `workflow_execution_environment_unsafe`; failed runtime: `workflow_runtime_unavailable`; unavailable persistence/shutdown: `workflow_unavailable` |
 | 500 | Unexpected failure: existing `internal_server_error` |
 
 `workflow_api_disabled` is reserved for a future explicit internal gate error; the
@@ -162,7 +185,7 @@ a client 422. Runtime errors wrapped as unavailable must not be misclassified us
 private exception chains. A provider failure after accepted execution is reported
 through FAILED progress/result, not retroactively as a failed admission response.
 
-## Activation and future execution safety
+## Activation and execution safety
 
 ### Implemented M5F-2 request boundary and ownership
 
@@ -225,37 +248,54 @@ Reverse proxies, containers, public/LAN deployments, tunnels and multi-user use 
 unsupported without a separately reviewed authenticated security design. Local processes
 share this unauthenticated trust boundary. No claim is made that Host/Origin checks or
 CORS authenticate a user, or that unchanged legacy PromptRequest routes gain these
-protections. Keep the whole MVP bound to loopback. This package has no execution or
-recovery mutation endpoint.
+protections. Keep the whole MVP bound to loopback. There is no recovery mutation endpoint.
 
-### Reserved write/execution design (not implemented)
+### Qualified HTTP execution — M5F-3C
 
-M5F-3A now implements the separately reviewed [admission/security preparation](execution-admission.md):
-typed decisions, one local reservation slot, runtime observations and an owned-socket
-startup preparation. It remains unwired; no POST routes or execution are active.
-Its explicit bounds and fail-closed qualification refine the future design below.
+M5F-3A's [admission/security foundation](execution-admission.md) and M5F-3B's
+[supervisor/startup](execution-supervisor.md) remain the execution authority.
+The route dependency borrows ApplicationExecutionOwner.persistence and supervisor;
+it creates no engine, gateway, provider, task pool or request-scoped supervisor.
+
+| API flag | Execution flag | Workflow routes | Writer / dispatch |
+| --- | --- | --- | --- |
+| false | false | Absent, including OpenAPI | None |
+| true | false | Six GETs, no POST | None |
+| true | true, ordinary startup | GETs + two POSTs documented; POSTs denied 503 | None |
+| true | true, dedicated qualified startup | GETs + two guarded POSTs | One lazy dedicated writer; supervised start only |
+
+Execution=true/API=false is rejected by existing Settings validation. Preparation
+alone is not qualification. Request-time checks run on the owning event loop and
+verify the same application, serving socket/configuration, connected-runtime proof
+and accepting supervisor phase. Lost qualification or shutdown denies both mutations.
+POST additionally requires exactly one application/json Content-Type (optional
+`; charset=utf-8`); missing/ambiguous or form/text media types are denied 403, malformed
+JSON and invalid typed bodies are 422. Existing body-size limits still apply (413).
 
 `WORKFLOW_API_ENABLED=false`, `WORKFLOW_EXECUTION_ENABLED=false`. Accept boolean
 values or case-insensitive exact `true`/`false` environment strings; reject ambiguous
 `1`/`yes`, null and whitespace-bearing values. Execution=true requires API=true.
 These flags are intent, not authentication, binding enforcement or runtime qualification.
 Settings validation performs no database work. M5F-2 adds only a lazy read engine and
-readback/recovery services to the lifespan when API=true; execution remains inactive.
+readback/recovery services to the lifespan when API=true. Flags alone never construct
+an execution writer/supervisor. The dedicated startup also requires explicit models
+and an existing migrated non-development database (aliases/hardlinks are refused).
 
 ADR-008 restricts the unauthenticated MVP to an explicitly bound `127.0.0.1` server
 (including any development proxy). No provider-backed route may be published on
 `0.0.0.0`, LAN, a tunnel or an unrestricted reverse proxy. The actual server/proxy
 binding must be enforced by deployment/runner composition, not merely APP_HOST or an
-environment declaration that Uvicorn does not consume automatically. Before future
-activation, reject unexpected Host headers and browser origins (including DNS rebinding
-and cross-origin mutation), require JSON for writes, and restrict the dev proxy.
+environment declaration that Uvicorn does not consume automatically. The dedicated
+entry point owns the actual exclusive 127.0.0.1/::1 socket, disables proxies/reload/
+multiple workers, and verifies its live Uvicorn handoff before activating the owner.
+Host, Origin or a forged ASGI client/server address never substitutes for that proof.
 These are additional browser defenses, not authentication/authorization; local processes
 can still read/write this unauthenticated MVP. Public/multi-user exposure requires real
 authentication, per-request ownership authorization and reviewed quotas first. CORS
 never grants authorization. Recovery diagnostics should remain disabled outside the
 internal development surface; no takeover/replay/resume endpoint is proposed.
 
-The future composition owner must explicitly qualify connected SQLite before any
+The composition owner explicitly qualifies connected SQLite before any
 dedicated write, then use the existing gated WAL/FULL/FK writer. Unsafe or unverified
 versions fail before journal changes; no DELETE fallback. Use the approved private
 Python 3.12.16 runtime locally and the existing CI runtime qualification in both backend
@@ -264,12 +304,12 @@ Windows. Enabling flags must not migrate/provision the development database. Pro
 and migration remain explicit operator decisions outside HTTP/startup. Read-only
 activation uses the existing existing-file read engine, not a WAL writer.
 
-The future runner, not the HTTP response task, owns execution and strong references
-to its tasks. Start admission must be bounded and deduplicated before returning 202;
-initially allow one active workflow with a bounded pending capacity, fixed server-owned
+The runner, not the HTTP response task, owns execution and strong references
+to its tasks. Start admission is bounded and deduplicated before returning 202:
+one active workflow, zero queued workflows, fixed server-owned
 deadline/model/token policy, max three evaluations (at most six agent operations) and
 existing gateway attempt/repair caps (at most four attempts per operation, 24 per run).
-Reject excess admission before claiming. The worker calls
+Excess capacity returns sanitized 429 with Retry-After: 2; nothing is queued. The worker calls
 `execute_persisted_optimizer()` once; its conditional database claim decides the winner.
 Short transactions finish before each provider await. Do not add provider retries at
 the API/runner layer. This prevents duplicate dispatch by concurrent requests but
@@ -297,18 +337,69 @@ Clients poll progress about every two seconds, with one request in flight, backo
 transient errors/429 and a stop on COMPLETED/FAILED/CLARIFICATION_REQUIRED. Polling never
 starts work or authorizes recovery. Fetch sensitive history/result only explicitly.
 
+### Local fake-provider HTTP example
+
+Use the approved private Python 3.12.16 environment. Before starting, independently
+provision/migrate a **disposable non-development** database; startup/HTTP never does
+this for you. Do not point these examples at backend/data/promptforge.db. From backend/:
+
+```powershell
+$taskPython = 'C:\Users\sinan\AppData\Local\PromptForge\sqlite-qualification\backend-venv\Scripts\python.exe'
+$env:WORKFLOW_API_ENABLED = 'true'
+$env:WORKFLOW_EXECUTION_ENABLED = 'true'
+$env:LLM_PROVIDER = 'fake'
+& $taskPython -m app.core.execution_startup --database 'C:\path\to\existing-disposable.db' --architect-model fake --critic-model fake --host 127.0.0.1 --port 8000
+```
+
+In a second local shell, create a PromptRequest using the unchanged existing API,
+then create → start → poll → result. No credentials or model/provider overrides are
+accepted in these workflow bodies:
+
+```powershell
+$base = 'http://127.0.0.1:8000/api/v1'
+$source = Invoke-RestMethod -Method Post -Uri "$base/prompt-requests" -ContentType 'application/json' -Body '{"raw_prompt":"Translate Merhaba into English."}'
+$createBody = '{"client_idempotency_key":"demo-run-001","max_evaluation_rounds":3}'
+$created = Invoke-WebRequest -Method Post -Uri "$base/prompt-requests/$($source.id)/runs" -ContentType 'application/json' -Body $createBody
+$run = ($created.Content | ConvertFrom-Json).workflow
+# First create: 201; repeat the exact URL/body: 200, same run ID.
+$accepted = Invoke-WebRequest -Method Post -Uri "$base/runs/$($run.id)/execution" -ContentType 'application/json' -Body '{"expected_revision":0}'
+# 202 means task accepted. Follow its Location to authoritative progress.
+Invoke-RestMethod -Uri "$base/runs/$($run.id)"
+# Once terminal, explicitly retrieve sensitive content:
+Invoke-RestMethod -Uri "$base/runs/$($run.id)/result"
+```
+
+The stock fake provider intentionally has no scripted replies. With the command above,
+execution safely reaches FAILED/script_exhausted, without network requests or charges.
+The HTTP test fixture injects the existing scripted FakeLLMProvider to demonstrate
+a successful three-round run: create 201, start 202 while paused, GENERATING with null
+scores, then COMPLETED with independently qualified selected Evaluation and result.
+It also covers completed/not_qualified, unassessable and CLARIFICATION_REQUIRED; technical
+completion is never promoted to quality qualification. These fake tests establish
+sequencing/contracts, not real-model quality or crash/power-loss durability.
+
+Stop with Ctrl+C in the server shell. Admission closes before listener/resource disposal;
+the existing supervisor allows 30 seconds to drain and 10 seconds for cancellation
+cleanup. A stuck task retains its dependencies and requires operator/process handling.
+After an uncertain response, crash, lease expiry or interrupted call, inspect
+GET /runs/{id}, /history, /history/content and /recovery. Preserve stored evidence;
+do not repeat an external operation, edit claims, take over leases or treat a recovery
+diagnostic as permission to replay. No automatic replay/resume is implemented.
+
 ## Follow-up packages and acceptance
 
 - **M5F-2:** implemented the six guarded GET routes, read-only engine ownership and
   safe error mapping. Offline HTTP tests cover default-off routing/OpenAPI, loopback/
   origin/Host/forwarding attacks, root_path, parent scope, pagination, states, privacy,
   null scores/telemetry, integrity conflicts, no writes/provider calls and cleanup.
-- **M5F-3:** separately review creation/start admission and supervised runner ownership,
-  bounded capacity/deadline/token limits, actual bind/proxy/Host/origin enforcement,
-  runtime qualification, concurrent duplicate starts, crash/admission ambiguity and
-  cancellation/shutdown. Only then activate a writer or provider-backed execution.
-  A durable start-admission acknowledgment would require additional design/schema work;
-  none is claimed or added by M5F-1.
+- **M5F-3A/B/C:** implemented admission, supervised ownership and the two guarded POSTs.
+  Offline tests use real owned HTTP sockets and temporary migrated databases for
+  concurrent keyed creation, duplicate/capacity rejection, three-round completion,
+  truthful quality/clarification/failure, fencing failure, disconnect/cancellation,
+  shutdown and transport/JSON/error/privacy behavior. Prior GET contracts stay intact.
+- **Later:** frontend integration, public authentication and durable delivery are
+  separate designs. A durable start-admission acknowledgment would require additional
+  schema/lifecycle work; no queue, crash replay or exactly-once billing is claimed.
 
 Verification uses the existing approved private runtime, fake providers and temporary
 migrated databases only. Focused contracts cover defaults/invalid activation, route

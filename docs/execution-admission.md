@@ -2,10 +2,11 @@
 
 M5F-3B now supplies the separately composed [supervisor and explicit startup](execution-supervisor.md).
 The M5F-3A inventory below records the preparation boundary; ordinary startup remains
-unqualified, and M5F-3C HTTP POST admission is still absent. Only the dedicated M5F-3B
-startup connects actual listener proof, provider/writer ownership and supervised tasks.
+unqualified. M5F-3C now connects the [two guarded HTTP POST operations](workflow-api-contracts.md)
+to that shared owner. Only dedicated startup connects actual listener proof,
+provider/writer ownership and supervised tasks; flags/headers alone remain insufficient.
 
-## Implemented and deliberately unwired
+## M5F-3A preparation inventory (historical boundary)
 
 `app/api/execution_admission.py` contains typed admission input/decisions and one
 thread-safe, process-owned capacity gate. It imports no repository, engine, optimizer

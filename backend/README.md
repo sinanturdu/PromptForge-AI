@@ -340,26 +340,27 @@ Merkezi hata yakalayıcılar (`app/api/error_handlers.py`) tüm HTTP hataların�
 
 ## Mevcut Sınırlamalar ve Gelecek Genişleme Noktaları
 
-M5F-3B adds an [internal supervised workflow runner](../docs/execution-supervisor.md)
-with explicit owned-loopback startup, fenced dispatch checks, lease/deadline monitoring
-and resource-safe shutdown. Ordinary startup and default flags do not activate it;
-no workflow POST route is registered. The dedicated command requires an explicit
-existing non-development database and model settings; it creates/submits no workflow.
+M5F-3C adds exactly two [secure local workflow POST operations](../docs/workflow-api-contracts.md):
+create `/api/v1/prompt-requests/{id}/runs` (201 new / 200 exact keyed replay), then
+start `/api/v1/runs/{id}/execution` (202 supervised task acceptance). Poll the Location
+GET for authoritative progress and explicitly fetch `/result` once terminal. Creation
+never invokes a provider; duplicate/conflicting starts return 409 and capacity returns
+429. Both flags remain default-off: API-only enables six GETs without POST; both flags
+register POSTs but ordinary startup denies them with 503 and creates no execution writer.
 
-M5F-3A adds an [unwired execution admission/security foundation](../docs/execution-admission.md).
-It adds no POST route, runner, queue, writer or provider dispatch. Existing `uvicorn`
-commands (including `--reload`) are not qualified execution startup mechanisms.
-Future execution must own and verify its actual loopback server/socket and runtime;
-feature flags or ASGI addresses alone cannot enable it. M5F-2 reads remain unchanged.
+Only the [dedicated owned-loopback startup](../docs/execution-supervisor.md) qualifies
+the shared [admission/supervisor](../docs/execution-admission.md), requiring the private
+safe runtime, explicit models and an existing migrated non-development database. The
+API documentation includes fake-provider startup and create → start → poll examples,
+body-key idempotency, error statuses, Ctrl+C cleanup and read-only uncertainty inspection.
+No startup migration, default development database write or live-provider test is added.
+The runner retains task/provider/writer ownership across HTTP disconnect and shutdown.
+All workflow responses include no-store and the established security headers.
 
-M5F-1/M5F-2 provide [workflow API contracts and gated read-only inspection](../docs/workflow-api-contracts.md).
-`WORKFLOW_API_ENABLED=false` keeps the six workflow GET routes absent from routing
-and OpenAPI. Enabling it allows guarded direct loopback/same-origin inspection through
-a separately owned read-only engine; all workflow responses include `no-store`.
-`WORKFLOW_EXECUTION_ENABLED` remains reserved: both flags true still activates reads
-only. No workflow creation, execution, writer or provider call is introduced.
-Current prompt-request APIs are unchanged. Reverse proxies, containers and public
-deployment require a separate authenticated security design; CORS is not authorization.
+Current PromptRequest APIs remain unchanged. Host/Origin/ASGI addresses are not listener
+proof or user authentication. Reload, multiple workers, additional listeners, proxies,
+containers, public/multi-user deployment and automatic recovery/replay are unsupported.
+Use one trusted local process; public deployment needs a separate authenticated design.
 
 ### Mevcut Sınırlamalar (M5E-2)
 

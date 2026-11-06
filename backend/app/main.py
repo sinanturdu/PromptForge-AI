@@ -10,6 +10,7 @@ from fastapi.openapi.utils import get_openapi
 from app.api.error_handlers import register_exception_handlers
 from app.api.middleware import RequestBodySizeLimitMiddleware, RequestTracingMiddleware
 from app.api.v1.router import api_router
+from app.api.v1.routes.workflows import execution_router
 from app.api.v1.routes.workflows import router as workflow_router
 from app.api.workflow_security import WorkflowSecurityMiddleware
 from app.core.config import Settings, get_settings
@@ -185,6 +186,8 @@ def create_app(
     application.include_router(api_router, prefix=resolved_settings.api_v1_prefix)
     if resolved_settings.workflow_api_enabled:
         application.include_router(workflow_router, prefix=resolved_settings.api_v1_prefix)
+        if resolved_settings.workflow_execution_enabled:
+            application.include_router(execution_router, prefix=resolved_settings.api_v1_prefix)
     return application
 
 

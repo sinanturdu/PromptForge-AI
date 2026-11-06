@@ -523,7 +523,12 @@ def test_ordinary_startup_never_activates_supervisor_or_writer(
         assert not hasattr(app.state, "workflow_execution_owner")
         assert client.get("/api/v1/health").status_code == 200
         paths = client.get("/api/v1/openapi.json").json()["paths"]
-        assert all(set(value) == {"get"} for path, value in paths.items() if "runs" in path)
+        posts = {path for path, value in paths.items() if "runs" in path and "post" in value}
+        assert posts == (
+            {"/api/v1/prompt-requests/{id}/runs", "/api/v1/runs/{id}/execution"}
+            if execution
+            else set()
+        )
         assert provider.requests == []
     writer.assert_not_called()
 

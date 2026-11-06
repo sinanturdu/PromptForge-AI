@@ -48,6 +48,7 @@ class ApplicationExecutionOwner:
             models,
         )
         self.supervisor: WorkflowExecutionSupervisor | None = None
+        self.persistence: WorkflowPersistenceService | None = None
         self._writer: AsyncEngine | None = None
         self._closed = False
         self._activation_lock = asyncio.Lock()
@@ -83,17 +84,19 @@ class ApplicationExecutionOwner:
             raise RuntimeError("Local workflow execution environment is not qualified.")
         writer = create_write_engine(settings.database_url)
         try:
+            persistence = WorkflowPersistenceService(writer)
             self.supervisor = WorkflowExecutionSupervisor(
                 settings=settings,
                 transport=transport,
                 runtime=runtime,
                 readback=self._readback,
-                persistence=WorkflowPersistenceService(writer),
+                persistence=persistence,
                 provider=self._provider,
                 architect_settings=self._models.architect,
                 critic_settings=self._models.critic,
             )
             self._writer = writer
+            self.persistence = persistence
         except BaseException:
             await writer.dispose()
             raise
@@ -105,6 +108,7 @@ class ApplicationExecutionOwner:
         if self._writer is not None:
             await self._writer.dispose()
             self._writer = None
+        self.persistence = None
         return True
 
     def retain_resources(self, resources: AsyncExitStack) -> None:

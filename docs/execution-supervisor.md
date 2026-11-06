@@ -6,7 +6,9 @@ WorkflowExecutionSupervisor owns one task/reservation, zero queued workflows and
 sequential provider-dispatch stream. It invokes the existing execute_persisted_optimizer
 exactly once per accepted local task. No workflow POST route, workflow creation,
 frontend activation, resume, takeover or new persistence transaction is introduced.
-M5F-2 GETs and ordinary startup retain their existing behavior.
+M5F-2 GETs and ordinary startup retain their existing behavior. M5F-3C separately adds
+the [two guarded HTTP operations](workflow-api-contracts.md) using this shared owner;
+the creation route borrows its existing persistence service and start calls submit.
 
 Both feature flags remain false by default. Even with both true, ordinary
 `uvicorn app.main:app` has no execution owner/supervisor/writer. The new keyword-only
@@ -173,8 +175,11 @@ grace/cancellation/stuck shutdown, submission races and real disposal ordering.
 Transaction checkout assertions prove provider dispatch starts outside DB transactions.
 The development SQLite file and sidecars remain guarded and unchanged.
 
-M5F-3C still owns workflow creation/start POST routes, public acceptance/idempotency
-semantics and frontend integration. This package adds no HTTP dispatch endpoint.
+M5F-3C now provides creation/start POST routes and HTTP acceptance/idempotency semantics.
+The owner exposes the same persistence service used by the supervisor only after
+activation; request dependencies never dispose it. The supervisor's check_environment
+is also used for creation authority, on the owning loop. No execution policy changes.
+Frontend integration remains future work.
 Linux deployment qualification and actual provider behavior must be verified in their
 own approved environment; local fake tests prove sequencing/contracts, not live model
 quality, power-loss durability or guaranteed remote cancellation.

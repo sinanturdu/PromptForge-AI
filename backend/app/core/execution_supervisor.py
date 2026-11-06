@@ -290,7 +290,10 @@ class WorkflowExecutionSupervisor:
         self._idle.set()
         self.last_completion: ExecutionCompletion | None = None
 
-    def _environment(self, scope: Scope) -> AdmissionOutcome | None:
+    def check_environment(self, scope: Scope) -> AdmissionOutcome | None:
+        """Request-time authority check, also required for HTTP workflow creation."""
+        if asyncio.get_running_loop() is not self._loop:
+            return AdmissionOutcome.ENVIRONMENT_UNVERIFIED
         if self.phase != "accepting":
             return AdmissionOutcome.SHUTTING_DOWN
         if not self._settings.workflow_api_enabled or not self._settings.workflow_execution_enabled:
@@ -309,7 +312,7 @@ class WorkflowExecutionSupervisor:
     async def submit(self, request: AdmissionRequest, *, scope: Scope) -> SubmissionResult:
         if asyncio.get_running_loop() is not self._loop:
             return self._rejected(AdmissionOutcome.ENVIRONMENT_UNVERIFIED)
-        failure = self._environment(scope)
+        failure = self.check_environment(scope)
         if failure is not None:
             return self._rejected(failure)
         if not isinstance(request, AdmissionRequest):
@@ -330,7 +333,7 @@ class WorkflowExecutionSupervisor:
             )
         except Exception:
             return self._rejected(AdmissionOutcome.PERSISTENCE_UNAVAILABLE)
-        failure = self._environment(scope)
+        failure = self.check_environment(scope)
         if failure is not None:
             return self._rejected(failure)
         admitted = self._gate.admit(

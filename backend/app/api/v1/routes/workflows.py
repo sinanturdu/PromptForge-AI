@@ -1,4 +1,4 @@
-"""Gated workflow inspection only; no writer, provider or optimizer dependencies."""
+"""Gated workflow inspection and explicitly qualified local submission."""
 
 from collections.abc import Callable, Coroutine
 from typing import Annotated, Any
@@ -10,21 +10,37 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from app.api.execution_admission import (
+    EXECUTION_DEADLINE_SECONDS,
+    AdmissionDecision,
+    AdmissionRequest,
+)
+from app.api.workflow_security import execution_request_is_local
 from app.core.errors import PROBLEM_JSON_MEDIA_TYPE, AppError, ProblemDetails
+from app.core.execution_startup import ApplicationExecutionOwner
 from app.db.read_transactions import read_snapshot
 from app.llm.errors import LLMError
+from app.modules.prompts.persistence_contracts import STORAGE_VERSION
 from app.modules.prompts.repository import PromptRequestRepository
 from app.modules.prompts.service import PromptRequestNotFoundError
 from app.modules.prompts.workflow_api_schemas import (
     WorkflowContentHistoryResponse,
+    WorkflowCreateRequest,
+    WorkflowCreateResponse,
     WorkflowHistoryPageResponse,
     WorkflowHistoryQuery,
+    WorkflowIdentityResponse,
     WorkflowMetadataHistoryResponse,
     WorkflowProgressResponse,
     WorkflowRecoveryResponse,
     WorkflowResultResponse,
+    WorkflowStartRequest,
+    WorkflowStartResponse,
 )
-from app.modules.prompts.workflow_persistence_contracts import PersistenceError
+from app.modules.prompts.workflow_persistence_contracts import (
+    PersistenceError,
+    WorkflowConfiguration,
+)
 from app.modules.prompts.workflow_readback import WorkflowReadbackService
 from app.modules.prompts.workflow_recovery import WorkflowRecoveryAssessmentService
 
@@ -33,7 +49,7 @@ def _problem(code: str, status: int, detail: str) -> AppError:
     return AppError(status_code=status, error_code=code, detail=detail)
 
 
-class _WorkflowReadRoute(APIRoute):
+class _WorkflowRoute(APIRoute):
     def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
         original = super().get_route_handler()
 
@@ -78,7 +94,7 @@ class _WorkflowReadRoute(APIRoute):
 
 router = APIRouter(
     tags=["workflows"],
-    route_class=_WorkflowReadRoute,
+    route_class=_WorkflowRoute,
     responses={
         code: {
             "model": ProblemDetails,
@@ -98,14 +114,58 @@ router = APIRouter(
     },
 )
 
+# Registered only when both flags are enabled. Registration is not execution
+# qualification: every request still needs the live application-owned listener.
+execution_router = APIRouter(
+    tags=["workflows"],
+    route_class=_WorkflowRoute,
+    responses={
+        **router.responses,
+        503: {
+            "model": ProblemDetails,
+            "description": "Execution startup is unqualified, draining, or storage unavailable.",
+            "content": {
+                PROBLEM_JSON_MEDIA_TYPE: {"schema": {"$ref": "#/components/schemas/ProblemDetails"}}
+            },
+        },
+        429: {
+            "model": ProblemDetails,
+            "description": "The single local execution slot is occupied; no queue.",
+            "content": {
+                PROBLEM_JSON_MEDIA_TYPE: {"schema": {"$ref": "#/components/schemas/ProblemDetails"}}
+            },
+        },
+    },
+)
 
-def get_workflow_read_engine(request: Request) -> AsyncEngine:
-    engine = getattr(request.app.state, "workflow_read_engine", None)
-    if not isinstance(engine, AsyncEngine):
+
+async def get_workflow_execution_owner(request: Request) -> ApplicationExecutionOwner:
+    if not execution_request_is_local(request.scope):
         raise _problem(
-            "workflow_unavailable", 503, "Workflow inspection is temporarily unavailable."
+            "workflow_access_denied",
+            403,
+            "Workflow execution requires a direct same-origin loopback JSON request.",
         )
-    return engine
+    owner = getattr(request.app.state, "workflow_execution_owner", None)
+    if (
+        not isinstance(owner, ApplicationExecutionOwner)
+        or owner.supervisor is None
+        or owner.persistence is None
+    ):
+        raise _problem(
+            "workflow_execution_environment_unsafe",
+            503,
+            "Workflow execution transport is not qualified.",
+        )
+    outcome = owner.supervisor.check_environment(request.scope)
+    if outcome is not None:
+        error = AdmissionDecision(outcome=outcome).to_error()
+        assert error is not None
+        raise error
+    return owner
+
+
+ExecutionOwner = Annotated[ApplicationExecutionOwner, Depends(get_workflow_execution_owner)]
 
 
 def get_workflow_readback(request: Request) -> WorkflowReadbackService:
@@ -115,6 +175,105 @@ def get_workflow_readback(request: Request) -> WorkflowReadbackService:
             "workflow_unavailable", 503, "Workflow inspection is temporarily unavailable."
         )
     return service
+
+
+@execution_router.post(
+    "/prompt-requests/{id}/runs",
+    response_model=WorkflowCreateResponse,
+    status_code=201,
+    responses={200: {"model": WorkflowCreateResponse, "description": "Exact idempotent replay."}},
+    summary="Create a workflow without executing it (verified local startup required)",
+    description=(
+        "Requires both feature flags and the dedicated owned-loopback startup. "
+        "The required body client_idempotency_key protects retries; no header key is used. "
+        "Ordinary startup returns 503. Creation never dispatches a provider."
+    ),
+)
+async def create_workflow(
+    id: UUID,
+    payload: WorkflowCreateRequest,
+    request: Request,
+    response: Response,
+    owner: ExecutionOwner,
+) -> WorkflowCreateResponse:
+    assert owner.persistence is not None
+    created = await owner.persistence.create_workflow(
+        id,
+        WorkflowConfiguration(
+            schema_version=STORAGE_VERSION,
+            max_evaluation_rounds=payload.max_evaluation_rounds,
+            timeout_seconds=EXECUTION_DEADLINE_SECONDS,
+        ),
+        client_idempotency_key=payload.client_idempotency_key,
+    )
+    response.status_code = 200 if created.replayed else 201
+    response.headers["Location"] = (
+        f"{request.app.state.settings.api_v1_prefix}/runs/{created.workflow.id}"
+    )
+    return WorkflowCreateResponse(
+        workflow=WorkflowIdentityResponse.model_validate(
+            dict(
+                id=created.workflow.id,
+                prompt_request_id=created.workflow.prompt_request_id,
+                status=created.workflow.status,
+            )
+        ),
+        replayed=created.replayed,
+    )
+
+
+@execution_router.post(
+    "/runs/{id}/execution",
+    response_model=WorkflowStartResponse,
+    status_code=202,
+    summary="Accept one supervised execution (verified local startup required)",
+    description=(
+        "202 acknowledges local task ownership, not a durable claim or completed result. "
+        "Poll Location for authoritative persisted progress. Ordinary startup returns 503."
+    ),
+)
+async def start_workflow(
+    id: UUID,
+    payload: WorkflowStartRequest,
+    request: Request,
+    response: Response,
+    owner: ExecutionOwner,
+    service: Annotated[WorkflowReadbackService, Depends(get_workflow_readback)],
+    prompt_request_id: Annotated[UUID | None, Query()] = None,
+) -> WorkflowStartResponse:
+    # Resolve ownership from real readback, never from client-supplied fencing data.
+    summary = await service.read(id, prompt_request_id=prompt_request_id)
+    row = summary.workflow
+    identity = WorkflowIdentityResponse.model_validate(
+        dict(
+            id=row.id,
+            prompt_request_id=row.prompt_request_id,
+            status=row.status,
+        )
+    )
+    assert owner.supervisor is not None
+    submitted = await owner.supervisor.submit(
+        AdmissionRequest(
+            prompt_request_id=row.prompt_request_id, workflow_run_id=id, start=payload
+        ),
+        scope=request.scope,
+    )
+    if not submitted.accepted:
+        error = submitted.decision.to_error()
+        assert error is not None
+        raise error
+    # No await after acceptance: worker ownership is independent of HTTP delivery.
+    response.headers["Location"] = f"{request.app.state.settings.api_v1_prefix}/runs/{id}"
+    return WorkflowStartResponse(workflow=identity)
+
+
+def get_workflow_read_engine(request: Request) -> AsyncEngine:
+    engine = getattr(request.app.state, "workflow_read_engine", None)
+    if not isinstance(engine, AsyncEngine):
+        raise _problem(
+            "workflow_unavailable", 503, "Workflow inspection is temporarily unavailable."
+        )
+    return engine
 
 
 def get_workflow_recovery(request: Request) -> WorkflowRecoveryAssessmentService:
