@@ -14,6 +14,7 @@ from app.api.v1.routes.workflows import router as workflow_router
 from app.api.workflow_security import WorkflowSecurityMiddleware
 from app.core.config import Settings, get_settings
 from app.core.errors import PROBLEM_JSON_MEDIA_TYPE, ProblemDetails
+from app.core.execution_startup import ApplicationExecutionOwner, ExecutionModels
 from app.core.logging import configure_logging, get_logger
 from app.db.read_transactions import create_read_engine
 from app.db.session import DatabaseSessionManager
@@ -56,16 +57,36 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         )
         application.state.db_manager = db_manager
         application.state.llm_gateway = gateway
+        execution_owner = None
         if read_engine is not None:
             application.state.workflow_read_engine = read_engine
             application.state.workflow_readback = WorkflowReadbackService(read_engine)
             application.state.workflow_recovery = WorkflowRecoveryAssessmentService(
                 application.state.workflow_readback
             )
+            models: ExecutionModels | None = application.state.execution_models
+            if settings.workflow_execution_enabled and models is not None:
+                execution_owner = ApplicationExecutionOwner(
+                    settings, provider, application.state.workflow_readback, models
+                )
+                application.state.workflow_execution_owner = execution_owner
         app_logger.info("Application startup completed")
         try:
             yield
         finally:
+            if execution_owner is not None:
+                try:
+                    stopped = await execution_owner.shutdown()
+                except BaseException:
+                    execution_owner.retain_resources(resources.pop_all())
+                    raise
+                if not stopped:
+                    execution_owner.retain_resources(resources.pop_all())
+                    raise RuntimeError(
+                        "Workflow task did not stop; resources retained. "
+                        "Process termination is required."
+                    )
+                del application.state.workflow_execution_owner
             del application.state.llm_gateway
             if read_engine is not None:
                 del application.state.workflow_recovery
@@ -129,7 +150,9 @@ class _PromptForgeFastAPI(FastAPI):
         return _build_custom_openapi(self)
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, *, execution_models: ExecutionModels | None = None
+) -> FastAPI:
     """Create and configure the FastAPI application."""
     resolved_settings = settings if settings is not None else get_settings()
     configure_logging(level=resolved_settings.log_level)
@@ -144,6 +167,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     application.state.settings = resolved_settings
+    application.state.execution_models = execution_models
 
     # Register inner middleware first so RequestTracingMiddleware wraps the full stack.
     application.add_middleware(

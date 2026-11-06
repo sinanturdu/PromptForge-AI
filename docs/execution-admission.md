@@ -1,5 +1,10 @@
 # Execution admission and security foundation — M5F-3A
 
+M5F-3B now supplies the separately composed [supervisor and explicit startup](execution-supervisor.md).
+The M5F-3A inventory below records the preparation boundary; ordinary startup remains
+unqualified, and M5F-3C HTTP POST admission is still absent. Only the dedicated M5F-3B
+startup connects actual listener proof, provider/writer ownership and supervised tasks.
+
 ## Implemented and deliberately unwired
 
 `app/api/execution_admission.py` contains typed admission input/decisions and one

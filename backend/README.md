@@ -340,6 +340,12 @@ Merkezi hata yakalayıcılar (`app/api/error_handlers.py`) tüm HTTP hataların�
 
 ## Mevcut Sınırlamalar ve Gelecek Genişleme Noktaları
 
+M5F-3B adds an [internal supervised workflow runner](../docs/execution-supervisor.md)
+with explicit owned-loopback startup, fenced dispatch checks, lease/deadline monitoring
+and resource-safe shutdown. Ordinary startup and default flags do not activate it;
+no workflow POST route is registered. The dedicated command requires an explicit
+existing non-development database and model settings; it creates/submits no workflow.
+
 M5F-3A adds an [unwired execution admission/security foundation](../docs/execution-admission.md).
 It adds no POST route, runner, queue, writer or provider dispatch. Existing `uvicorn`
 commands (including `--reload`) are not qualified execution startup mechanisms.
