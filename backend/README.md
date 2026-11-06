@@ -340,6 +340,12 @@ Merkezi hata yakalayıcılar (`app/api/error_handlers.py`) tüm HTTP hataların�
 
 ## Mevcut Sınırlamalar ve Gelecek Genişleme Noktaları
 
+M5F-3A adds an [unwired execution admission/security foundation](../docs/execution-admission.md).
+It adds no POST route, runner, queue, writer or provider dispatch. Existing `uvicorn`
+commands (including `--reload`) are not qualified execution startup mechanisms.
+Future execution must own and verify its actual loopback server/socket and runtime;
+feature flags or ASGI addresses alone cannot enable it. M5F-2 reads remain unchanged.
+
 M5F-1/M5F-2 provide [workflow API contracts and gated read-only inspection](../docs/workflow-api-contracts.md).
 `WORKFLOW_API_ENABLED=false` keeps the six workflow GET routes absent from routing
 and OpenAPI. Enabling it allows guarded direct loopback/same-origin inspection through

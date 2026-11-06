@@ -11,6 +11,16 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from app.api.error_handlers import build_problem_response, unhandled_exception_handler
 
 
+def execution_request_is_local(scope: Scope) -> bool:
+    """Additional JSON/POST checks for future mutation; this proves no listener binding."""
+    if scope.get("type") != "http" or scope.get("method") != "POST" or not _local_request(scope):
+        return False
+    content_types = [v for k, v in scope.get("headers", []) if k.lower() == b"content-type"]
+    if len(content_types) != 1:
+        return False
+    return content_types[0].lower() in {b"application/json", b"application/json; charset=utf-8"}
+
+
 def _authority(value: str, scheme: str) -> tuple[str, int] | None:
     matched = re.fullmatch(r"(localhost|127\.0\.0\.1|\[::1\])(?::([0-9]{1,5}))?", value.lower())
     if matched is None:

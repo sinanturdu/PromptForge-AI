@@ -376,6 +376,7 @@ class WorkflowRecoveryResponse(WorkflowAPIModel):
 
 
 WorkflowAPIErrorCode = Literal[
+    "workflow_execution_environment_unsafe",
     "workflow_access_denied",
     "validation_error",
     "prompt_request_not_found",

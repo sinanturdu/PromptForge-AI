@@ -230,6 +230,11 @@ recovery mutation endpoint.
 
 ### Reserved write/execution design (not implemented)
 
+M5F-3A now implements the separately reviewed [admission/security preparation](execution-admission.md):
+typed decisions, one local reservation slot, runtime observations and an owned-socket
+startup preparation. It remains unwired; no POST routes or execution are active.
+Its explicit bounds and fail-closed qualification refine the future design below.
+
 `WORKFLOW_API_ENABLED=false`, `WORKFLOW_EXECUTION_ENABLED=false`. Accept boolean
 values or case-insensitive exact `true`/`false` environment strings; reject ambiguous
 `1`/`yes`, null and whitespace-bearing values. Execution=true requires API=true.
