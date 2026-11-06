@@ -340,12 +340,14 @@ Merkezi hata yakalayıcılar (`app/api/error_handlers.py`) tüm HTTP hataların�
 
 ## Mevcut Sınırlamalar ve Gelecek Genişleme Noktaları
 
-M5F-1 adds [workflow API contracts and activation/security design](../docs/workflow-api-contracts.md).
-`WORKFLOW_API_ENABLED` and `WORKFLOW_EXECUTION_ENABLED` default to `false`; execution
-requires both. These reserved settings do not register routes, initialize workflow
-writers or dispatch work, even when enabled. Current prompt-request APIs are unchanged.
-Future unauthenticated workflow activation must remain loopback-only and explicitly
-qualify the connected SQLite runtime before any persistent write.
+M5F-1/M5F-2 provide [workflow API contracts and gated read-only inspection](../docs/workflow-api-contracts.md).
+`WORKFLOW_API_ENABLED=false` keeps the six workflow GET routes absent from routing
+and OpenAPI. Enabling it allows guarded direct loopback/same-origin inspection through
+a separately owned read-only engine; all workflow responses include `no-store`.
+`WORKFLOW_EXECUTION_ENABLED` remains reserved: both flags true still activates reads
+only. No workflow creation, execution, writer or provider call is introduced.
+Current prompt-request APIs are unchanged. Reverse proxies, containers and public
+deployment require a separate authenticated security design; CORS is not authorization.
 
 ### Mevcut Sınırlamalar (M5E-2)
 

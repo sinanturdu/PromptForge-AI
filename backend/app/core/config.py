@@ -66,8 +66,8 @@ class Settings(BaseSettings):
     database_connect_timeout: float = Field(default=30.0, gt=0.0)
     database_echo: bool = False
 
-    # Reserved for explicit future composition. These flags do not register routes,
-    # provision a database or construct the opt-in persistent workflow writer.
+    # API activation registers guarded read routes only. Execution remains reserved;
+    # neither flag provisions a database or constructs a persistent workflow writer.
     workflow_api_enabled: bool = False
     workflow_execution_enabled: bool = False
 

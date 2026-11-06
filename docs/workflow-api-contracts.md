@@ -1,18 +1,19 @@
-# Workflow API contracts and security foundation — M5F-1
+# Workflow API contracts and gated read inspection — M5F-1 / M5F-2
 
 ## Implemented boundary and inspected architecture
 
-This package implements Pydantic contracts, pure allowlisted read projections and
-two validated settings. It registers **no workflow route**, changes no lifespan or
-database composition, and starts no task. Enabling either setting has no activation
-effect in M5F-1. The endpoint inventory below is the proposed M5F-2/M5F-3 contract.
+M5F-1 implements Pydantic contracts, pure allowlisted read projections and two validated
+settings. M5F-2 adds the six GET routes below, registered only with
+`WORKFLOW_API_ENABLED=true`. Both flags default off; enabling both still activates
+reads only. No POST workflow route, writer, task, provider dispatch, automatic recovery
+or database migration/provisioning is introduced. Creation/start remain M5F-3 design.
 
 The current `main.py` lifespan owns one lazy ordinary DatabaseSessionManager and
 one provider/gateway through AsyncExitStack. The ordinary SQLite connection hook
 uses WAL/NORMAL on connection; it is not the dedicated persistent writer and must
 not serve this new write path. Provider construction is not a generation request.
-Existing `/health` and PromptRequest create/get/list routes remain the only API
-operations. The frontend/MSW and Playwright tests use those existing prompt-request
+Before M5F-2 only `/health` and PromptRequest create/get/list routes were available.
+Their behavior remains unchanged. The frontend/MSW and Playwright tests use those existing prompt-request
 contracts; none currently invokes the optimizer.
 
 M5E provides the necessary internal behavior:
@@ -39,7 +40,7 @@ planned in-process runner is still absent. Its original startup interruption mut
 must not be implemented without a separate recovery/ownership decision: M5E evidence
 does not prove that the former worker stopped or a provider call never happened.
 
-## Proposed endpoints (not registered)
+## Endpoint inventory (GETs implemented; POSTs remain planned)
 
 All paths below are relative to `/api/v1`. UUID path parameters identify existing
 records; request ownership must be checked in the service scope, never inferred from
@@ -47,22 +48,26 @@ possession of a UUID. No user/principal ownership column exists in this local MV
 
 | Method / path | Request | Response / success | Gates |
 | --- | --- | --- | --- |
-| POST `/prompt-requests/{prompt_request_id}/runs` | `WorkflowCreateRequest` | `WorkflowCreateResponse`: 201 new, 200 exact replay; Location `/api/v1/runs/{id}` | API + execution |
-| POST `/runs/{workflow_run_id}/execution` | `WorkflowStartRequest` | `WorkflowStartResponse`: 202 only after bounded runner admission; Location points to progress | API + execution |
+| POST `/prompt-requests/{prompt_request_id}/runs` (planned only) | `WorkflowCreateRequest` | `WorkflowCreateResponse`: 201 new, 200 exact replay; Location `/api/v1/runs/{id}` | API + execution |
+| POST `/runs/{workflow_run_id}/execution` (planned only) | `WorkflowStartRequest` | `WorkflowStartResponse`: 202 only after bounded runner admission; Location points to progress | API + execution |
 | GET `/runs/{workflow_run_id}` | UUID | `WorkflowProgressResponse`, 200 | API |
 | GET `/prompt-requests/{prompt_request_id}/runs` | `WorkflowHistoryQuery` | `WorkflowHistoryPageResponse`, 200 (including empty pages) | API |
 | GET `/runs/{workflow_run_id}/history` | UUID | `WorkflowMetadataHistoryResponse`, 200 | API |
 | GET `/runs/{workflow_run_id}/history/content` | UUID, explicit content retrieval | `WorkflowContentHistoryResponse`, 200 | API; sensitive |
 | GET `/runs/{workflow_run_id}/result` | UUID | `WorkflowResultResponse`, 200 for an integrity-valid terminal workflow; otherwise 409 | API; sensitive |
-| GET `/runs/{workflow_run_id}/recovery` | UUID | `WorkflowRecoveryResponse`, 200; optional internal development diagnostics | API; internal only |
+| GET `/runs/{workflow_run_id}/recovery` | UUID | `WorkflowRecoveryResponse`, 200; internal development diagnostics | API; internal only |
 
 Creation never starts execution. Both mutating operations require execution activation,
 so read-only API activation does not initialize a dedicated writer. Reads create no
 workflow. A missing request/run is 404; invalid UUIDs, payloads and cursor pairs are 422.
 Response content is never added to metadata routes through an `include_content` default.
-The internal list service currently returns an empty page for a missing parent as
-well as an empty history. The future route must explicitly verify the PromptRequest
-in its owning read scope before promising the documented parent-not-found 404.
+The internal list service returns an empty page for a missing parent as well as an
+empty history. The HTTP route explicitly checks the parent through the existing
+PromptRequestRepository and a separate read-only snapshot before calling that service.
+It does not borrow the ordinary write-capable API session or alter list-service behavior.
+All `/runs/{id}` routes accept an optional `prompt_request_id` UUID assertion. The
+existing service enforces it as a parent-scope filter, returning the same 404 as an
+absent workflow. This assertion is not a principal, authentication or authorization.
 
 The API requires `client_idempotency_key` for creation, although the internal service
 allows it to be absent. Accept 1–256 ASCII letters/digits/`.`/`_`/`:`/`-`, starting
@@ -96,8 +101,8 @@ TerminalDetailsStorage's supported reason vocabulary, TokenUsage, VersionSummary
 EvaluationSummary, SelectedEvaluation, CanonicalPrompt, CriticOutput, WorkflowCursor
 and RecoveryAssessment. No parallel scoring, selection or lifecycle policy is added.
 Request models forbid extras and reject coerced round/revision booleans and strings.
-Pydantic schemas can be composed by FastAPI/OpenAPI without publishing them in the
-current application schema.
+The read contracts appear in FastAPI/OpenAPI only with API activation; creation/start
+schemas remain unpublished because their routes are not registered.
 
 Progress includes actual `current_round`, `completed_rounds`, `max_evaluation_rounds`
 and `state_revision`. `stored_best_version_id`, `stored_final_score` and
@@ -106,7 +111,7 @@ from validated history and is withheld if there are findings, truncation or inva
 history. A terminal result likewise withholds its candidate/assessment on inconsistency.
 History still shows actual stored Evaluation/version metadata for investigation;
 validated historical prompt content can remain visible beside those findings.
-The future result route maps integrity findings/invalid or truncated history to 409
+The result route maps integrity findings/invalid or truncated history to 409
 `workflow_integrity_inconsistent`. The pure projection itself withholds trusted
 content and returns findings; it does not raise HTTP exceptions or change readback.
 
@@ -131,18 +136,18 @@ Never serialize internal WorkflowState, WorkflowFence, operation/storage results
 PersistentOptimizationResult or gateway exceptions directly. No response includes
 execution tokens, operation keys, idempotency digests, credentials or private exception
 chains. Ordinary reprs hide content; dumps and structured validation errors remain
-sensitive and must not be logged. Future content/progress/history/recovery responses
-should use `Cache-Control: no-store`; do not put prompts, keys or provider payloads
+sensitive and must not be logged. Content/progress/history/recovery responses
+use `Cache-Control: no-store` in M5F-2; do not put prompts, keys or provider payloads
 in URLs, access logs or tracing context. Recovery proofs are evidence, never authority.
 
-Future errors retain `application/problem+json`, existing ProblemDetails fields and
-server-generated X-Request-ID. WorkflowProblemDetails declares this vocabulary only;
-it changes no global handler or existing error code:
+Errors retain `application/problem+json`, existing ProblemDetails fields and
+server-generated X-Request-ID. The read router maps expected errors without changing
+global handlers or existing PromptRequest error codes. Write-only codes remain reserved:
 
 | HTTP | Condition / error_code |
 | --- | --- |
 | 404 | API routes absent: existing `not_found`; resource absent: `prompt_request_not_found` / `workflow_not_found` |
-| 403 | Mutating operation disabled: `workflow_execution_disabled` |
+| 403 | Failed local request guard: `workflow_access_denied`; future disabled writes: `workflow_execution_disabled` |
 | 409 | Source/configuration/idempotency/claim conflict: `workflow_conflict`; active result: `workflow_not_terminal`; trusted result blocked: `workflow_integrity_inconsistent` |
 | 422 | Malformed input: existing `validation_error` |
 | 429 | Bounded admission full: `workflow_capacity_exceeded` with safe Retry-After |
@@ -151,7 +156,7 @@ it changes no global handler or existing error code:
 
 `workflow_api_disabled` is reserved for a future explicit internal gate error; the
 ordinary disabled router is absent/404. Service `PersistenceError` not_found/conflict/
-invalid/unavailable must map to fixed public messages at the future route boundary.
+invalid/unavailable map to fixed public messages at the read route boundary.
 Stored provenance invalidity is an integrity/infrastructure failure, not automatically
 a client 422. Runtime errors wrapped as unavailable must not be misclassified using
 private exception chains. A provider failure after accepted execution is reported
@@ -159,12 +164,78 @@ through FAILED progress/result, not retroactively as a failed admission response
 
 ## Activation and future execution safety
 
+### Implemented M5F-2 request boundary and ownership
+
+The workflow-only ASGI middleware runs before route validation and database dependencies.
+It uses Starlette's own routed-path normalization so an ASGI root_path cannot bypass
+the boundary. Existing PromptRequest and health routes keep their original policy.
+
+- Require a literal IP in the ASGI socket peer and verify loopback with `ipaddress`.
+  IPv4 127/8, IPv6 `::1` and IPv4-mapped loopback peers qualify; names, absent peers,
+  scope identifiers and remote/mapped-remote addresses do not. Headers never substitute
+  for socket identity. Production has no trust override; TestClient injects an explicit
+  transport peer in tests.
+- Require exactly one Host: `127.0.0.1`, `localhost` or `[::1]`, optionally with a
+  numeric port 1–65535. Reject aliases, userinfo, malformed/duplicate hosts and arbitrary
+  domain names. There is no DNS lookup or trust in DNS resolution.
+- Reject every Forwarded, X-Forwarded-* and X-Real-IP header, including empty values.
+  Run the direct local server with proxy rewriting disabled (`--no-proxy-headers`).
+  Do not place a proxy that strips those headers in front of this API: a loopback
+  proxy's socket does not prove its original client was local.
+- When present, require a single Origin matching the actual scheme, Host name and
+  effective port. Reject opaque/null, different origins and non-origin URL components.
+  Reject Sec-Fetch-Site values other than `same-origin`/`none`, including `same-site`.
+  Absent browser headers allow direct local CLI clients only after peer/Host checks;
+  their absence is never proof that a remote caller is trusted.
+
+All workflow responses (success, 403/404/405/409/422/503 and sanitized unexpected 500,
+including disabled-path 404s) have Cache-Control=no-store, Vary=Origin,Sec-Fetch-Site,
+Cross-Origin-Resource-Policy=same-origin, X-Content-Type-Options=nosniff and
+X-Frame-Options=DENY. No CORS allowance is added. The middleware handles unexpected
+pre-response errors through the existing sanitized error handler inside its header
+wrapper; no exception chain, SQL parameters or raw Pydantic input is sent to clients.
+
+The enabled lifespan owns one lazy mode=ro engine plus the existing readback/recovery
+services through AsyncExitStack. It opens no connection at startup. Every inspection
+uses the existing short `read_snapshot()` transaction with a fresh NullPool connection;
+no ordinary API engine/session, BEGIN IMMEDIATE, writer or journal-setting operation
+is used. Shutdown and partial startup failures dispose the engine; read service state
+is removed on shutdown. API=false never constructs the reader. Non-file SQLite or
+unsupported database configurations fail explicitly rather than falling back to a writer.
+Missing files return sanitized 503 without creating directories or databases.
+
+Expected PersistenceError mappings are not_found→404 workflow_not_found,
+conflict→409 workflow_conflict, invalid→409 workflow_integrity_inconsistent and
+unavailable→503 workflow_unavailable. Direct parent-lookup SQL errors also become
+sanitized 503. Malformed HTTP inputs remain 422. Unexpected failures remain 500.
+Result integrity takes precedence over non-ready classification; a valid active run
+returns 409 workflow_not_terminal. Terminal failure/clarification without a candidate
+returns a truthful 200 with null candidate/assessment and any approved questions.
+Recovery retains stored diagnostics but withholds selected results on findings;
+committed proof/reconciliation availability and replay/mutation safety still come from
+the unchanged M5E assessment service.
+
+The cursor is a typed value boundary, not an authorization token or a promise that
+its referenced row still exists. Parent filtering always applies independently of the
+cursor. Lists are bounded to 50, have deterministic time/UUID ties and no total count.
+The parent existence check and bounded listing are separate read snapshots; the API
+does not promise an atomic export across those checks or across pages.
+
+Reverse proxies, containers, public/LAN deployments, tunnels and multi-user use remain
+unsupported without a separately reviewed authenticated security design. Local processes
+share this unauthenticated trust boundary. No claim is made that Host/Origin checks or
+CORS authenticate a user, or that unchanged legacy PromptRequest routes gain these
+protections. Keep the whole MVP bound to loopback. This package has no execution or
+recovery mutation endpoint.
+
+### Reserved write/execution design (not implemented)
+
 `WORKFLOW_API_ENABLED=false`, `WORKFLOW_EXECUTION_ENABLED=false`. Accept boolean
 values or case-insensitive exact `true`/`false` environment strings; reject ambiguous
 `1`/`yes`, null and whitespace-bearing values. Execution=true requires API=true.
 These flags are intent, not authentication, binding enforcement or runtime qualification.
-Settings validation performs no database work. M5F-1 leaves existing lifespan/engines
-unchanged even with both flags true; API/worker activation requires later reviewed code.
+Settings validation performs no database work. M5F-2 adds only a lazy read engine and
+readback/recovery services to the lifespan when API=true; execution remains inactive.
 
 ADR-008 restricts the unauthenticated MVP to an explicitly bound `127.0.0.1` server
 (including any development proxy). No provider-backed route may be published on
@@ -223,10 +294,10 @@ starts work or authorizes recovery. Fetch sensitive history/result only explicit
 
 ## Follow-up packages and acceptance
 
-- **M5F-2:** implement gated read routes and error mapping over separately owned
-  read-only engines. Prove default-off/loopback protections, request scope, pagination,
-  no-store headers, null scores, content boundaries, integrity-result conflicts and
-  unchanged existing OpenAPI/API behavior. Decide whether to expose internal recovery.
+- **M5F-2:** implemented the six guarded GET routes, read-only engine ownership and
+  safe error mapping. Offline HTTP tests cover default-off routing/OpenAPI, loopback/
+  origin/Host/forwarding attacks, root_path, parent scope, pagination, states, privacy,
+  null scores/telemetry, integrity conflicts, no writes/provider calls and cleanup.
 - **M5F-3:** separately review creation/start admission and supervised runner ownership,
   bounded capacity/deadline/token limits, actual bind/proxy/Host/origin enforcement,
   runtime qualification, concurrent duplicate starts, crash/admission ambiguity and

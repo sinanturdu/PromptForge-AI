@@ -1,4 +1,4 @@
-"""Offline contract/privacy tests; no production workflow routes are registered."""
+"""Offline contract/privacy tests; workflow reads are gated and execution stays inactive."""
 
 import json
 from pathlib import Path
@@ -82,7 +82,7 @@ def test_ambiguous_feature_values_are_rejected(flag: str, invalid: Any) -> None:
 @pytest.mark.parametrize(
     "api_enabled,execution_enabled", [(False, False), (True, False), (True, True)]
 )
-def test_flags_do_not_register_routes_initialize_writers_or_connect_databases(
+def test_flags_gate_read_routes_without_writers_or_database_connections(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, api_enabled: bool, execution_enabled: bool
 ) -> None:
     database = tmp_path / "not-provisioned" / "api.db"
@@ -99,22 +99,35 @@ def test_flags_do_not_register_routes_initialize_writers_or_connect_databases(
             workflow_execution_enabled=execution_enabled,
         )
     )
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1", client=("127.0.0.1", 50000)) as client:
         assert client.get("/api/v1/health").status_code == 200
         paths = client.get("/api/v1/openapi.json").json()["paths"]
-        assert set(paths) == {
+        expected = {
             "/api/v1/health",
             "/api/v1/prompt-requests",
             "/api/v1/prompt-requests/{id}",
         }
+        if api_enabled:
+            expected |= {
+                "/api/v1/runs/{id}",
+                "/api/v1/prompt-requests/{id}/runs",
+                "/api/v1/runs/{id}/history",
+                "/api/v1/runs/{id}/history/content",
+                "/api/v1/runs/{id}/result",
+                "/api/v1/runs/{id}/recovery",
+            }
+        assert set(paths) == expected
+        if api_enabled:
+            assert all(set(paths[path]) == {"get"} for path in paths if "runs" in path)
         for method, path in [
             ("POST", f"/api/v1/prompt-requests/{uuid4()}/runs"),
             ("POST", f"/api/v1/runs/{uuid4()}/execution"),
-            ("GET", f"/api/v1/runs/{uuid4()}"),
         ]:
             response = client.request(method, path, json={})
-            assert response.status_code == 404
+            assert response.status_code in {404, 405}
             assert response.headers["content-type"].startswith("application/problem+json")
+        if not api_enabled:
+            assert client.get(f"/api/v1/runs/{uuid4()}").status_code == 404
         assert provider.calls == 0
     assert provider.closed
     writer.assert_not_called()

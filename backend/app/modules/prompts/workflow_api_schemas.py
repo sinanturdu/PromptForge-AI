@@ -1,4 +1,4 @@
-"""Future REST contracts and explicit read projections; no routes, I/O or dispatch.
+"""REST contracts and explicit read projections; no I/O or dispatch.
 
 Content responses are sensitive even though ordinary reprs omit their text. Never
 log dumps or structured validation errors. Internal persistence DTOs are not API DTOs.
@@ -29,6 +29,7 @@ from app.modules.prompts.workflow_read_contracts import (
     VersionSummary,
     WorkflowContentReadback,
     WorkflowCursor,
+    WorkflowPage,
     WorkflowReadback,
 )
 
@@ -160,6 +161,24 @@ class WorkflowListItemResponse(WorkflowIdentityResponse):
 class WorkflowHistoryPageResponse(WorkflowAPIModel):
     items: tuple[WorkflowListItemResponse, ...]
     next_cursor: WorkflowCursor | None
+
+    @classmethod
+    def from_readback(cls, value: WorkflowPage) -> Self:
+        return cls(
+            items=tuple(
+                WorkflowListItemResponse(
+                    id=item.id,
+                    prompt_request_id=item.prompt_request_id,
+                    status=WorkflowRunStatus(item.status),
+                    created_at=item.created_at,
+                    finished_at=item.finished_at,
+                    current_round=item.current_round,
+                    completed_rounds=item.completed_rounds,
+                )
+                for item in value.items
+            ),
+            next_cursor=value.next_cursor,
+        )
 
 
 class WorkflowTelemetryResponse(WorkflowAPIModel):
@@ -349,8 +368,15 @@ class WorkflowRecoveryResponse(WorkflowAPIModel):
 
     assessment: RecoveryAssessment
 
+    @classmethod
+    def from_readback(cls, value: RecoveryAssessment) -> Self:
+        return cls(
+            assessment=value.model_copy(update={"selected": None}) if value.findings else value
+        )
+
 
 WorkflowAPIErrorCode = Literal[
+    "workflow_access_denied",
     "validation_error",
     "prompt_request_not_found",
     "workflow_not_found",

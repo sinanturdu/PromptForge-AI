@@ -10,13 +10,18 @@ from fastapi.openapi.utils import get_openapi
 from app.api.error_handlers import register_exception_handlers
 from app.api.middleware import RequestBodySizeLimitMiddleware, RequestTracingMiddleware
 from app.api.v1.router import api_router
+from app.api.v1.routes.workflows import router as workflow_router
+from app.api.workflow_security import WorkflowSecurityMiddleware
 from app.core.config import Settings, get_settings
 from app.core.errors import PROBLEM_JSON_MEDIA_TYPE, ProblemDetails
 from app.core.logging import configure_logging, get_logger
+from app.db.read_transactions import create_read_engine
 from app.db.session import DatabaseSessionManager
 from app.llm.composition import create_provider
 from app.llm.gateway import LLMGateway
 from app.llm.schemas import GatewayPolicy
+from app.modules.prompts.workflow_readback import WorkflowReadbackService
+from app.modules.prompts.workflow_recovery import WorkflowRecoveryAssessmentService
 
 app_logger = get_logger("app")
 
@@ -32,6 +37,11 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             echo=settings.database_echo,
         )
         resources.push_async_callback(db_manager.dispose)
+        read_engine = None
+        if settings.workflow_api_enabled:
+            # Lazy mode=ro engine only; no connection, migration or writer startup.
+            read_engine = create_read_engine(settings.database_url)
+            resources.push_async_callback(read_engine.dispose)
         provider = create_provider(settings)
         resources.push_async_callback(provider.aclose)
         gateway = LLMGateway(
@@ -46,11 +56,21 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         )
         application.state.db_manager = db_manager
         application.state.llm_gateway = gateway
+        if read_engine is not None:
+            application.state.workflow_read_engine = read_engine
+            application.state.workflow_readback = WorkflowReadbackService(read_engine)
+            application.state.workflow_recovery = WorkflowRecoveryAssessmentService(
+                application.state.workflow_readback
+            )
         app_logger.info("Application startup completed")
         try:
             yield
         finally:
             del application.state.llm_gateway
+            if read_engine is not None:
+                del application.state.workflow_recovery
+                del application.state.workflow_readback
+                del application.state.workflow_read_engine
     app_logger.info("Application shutdown completed")
 
 
@@ -130,10 +150,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         RequestBodySizeLimitMiddleware,
         max_body_bytes=resolved_settings.max_request_body_bytes,
     )
+    application.add_middleware(
+        WorkflowSecurityMiddleware,
+        api_prefix=resolved_settings.api_v1_prefix,
+        enabled=resolved_settings.workflow_api_enabled,
+    )
     application.add_middleware(RequestTracingMiddleware)
 
     register_exception_handlers(application)
     application.include_router(api_router, prefix=resolved_settings.api_v1_prefix)
+    if resolved_settings.workflow_api_enabled:
+        application.include_router(workflow_router, prefix=resolved_settings.api_v1_prefix)
     return application
 
 
