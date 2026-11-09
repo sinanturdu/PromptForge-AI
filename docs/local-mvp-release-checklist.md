@@ -151,6 +151,18 @@ unidentified resources or sidecars from a personal database.
 
 ## Release decision and M5F-5C handoff
 
+### M5F-5C-1 CI preparation
+
+The [CI qualification report](ci-qualification.md) records the later clean baseline
+`e48907c`, four prepared jobs, explicit Ubuntu/Python/uv/Node selection, immutable
+action references, connected SQLite/WAL preflight, fake-provider isolation and
+content-free failure artifact policy. It also records new independently executed
+Windows results and any failures separately from this M5F-5B evidence.
+Linux/remote qualification remains pending; local Linux execution is blocked by
+the unavailable supported test environment. Review the report's actual PASS/FAIL/
+PENDING/BLOCKED classifications before any approved push/PR. All four named checks
+must ultimately pass on the relevant revision; final release/merge is still separate.
+
 No new P0/P1 behavior issue is identified by the completed evidence; this is not
 proof of absence. Any newly confirmed P0/P1 requiring behavior/architecture changes
 blocks this package and requires review. Known security limits are documented, not fixed
@@ -163,6 +175,9 @@ authorized PR/integration/merge process and decide version/tag/release scope. Do
 call the feature branch merged, remote CI green or the MVP release complete before then.
 
 ## Changed files and final Git state
+
+This section records M5F-5B's completion snapshot. The CI report above records the
+later M5F-5C-1 changes and qualification; the historical inventory below is preserved.
 
 Documentation/configuration examples only, plus one standard-library verification helper:
 

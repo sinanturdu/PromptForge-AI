@@ -102,6 +102,10 @@ Backend typing includes migrations and benchmarks. Vitest discovers only
 `src/**/*.test.{ts,tsx}`; Playwright uses `e2e/**/*.spec.ts`, one worker and zero retries.
 Test counts are dated observations in the release checklist, not permanent guarantees.
 
+[CI foundation and Linux qualification](docs/ci-qualification.md) describes the four
+prepared checks, tool pins, artifact privacy and pending Linux/remote evidence.
+Workflow configuration alone is not a successful GitHub Actions run.
+
 ## Boundaries and roadmap
 
 Use one trusted local process; there is no waiting queue. Public binds, proxies,

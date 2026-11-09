@@ -2,121 +2,228 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/m5f-workflow-api]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LLM_PROVIDER: fake
+  OPENAI_API_KEY: ''
+  WORKFLOW_API_ENABLED: 'false'
+  WORKFLOW_EXECUTION_ENABLED: 'false'
+  DATABASE_ECHO: 'false'
+  VITE_API_BASE_URL: ''
+  UV_NO_PROGRESS: '1'
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   backend:
     name: Backend (Python 3.12 · Ruff · mypy · pytest)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: backend
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
+      - name: Set up pinned uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.13.6'
           enable-cache: true
-          cache-dependency-glob: "backend/uv.lock"
-
-      - name: Install uv-managed Python 3.12.16
-        run: uv python install --managed-python 3.12.16
-
-      - name: Install dependencies
+          cache-dependency-glob: backend/uv.lock
+      - name: Install exact isolated Python and frozen dependencies
         run: |
-          ci_python="$(uv python find --managed-python --no-python-downloads --system 3.12.16)"
+          test "$(uname -m)" = x86_64
+          export UV_PYTHON_INSTALL_DIR="$RUNNER_TEMP/promptforge-python"
+          uv python install --managed-python --no-bin cpython-3.12.16-linux-x86_64-gnu
+          ci_python="$(uv python find --managed-python --no-python-downloads --system cpython-3.12.16-linux-x86_64-gnu)"
           uv sync --frozen --managed-python --no-python-downloads --python "$ci_python"
-
-      - name: Verify Python and connected SQLite runtimes
-        run: .venv/bin/python -m app.db.verify_ci_runtime
-
+      - name: Qualify Linux, connected SQLite and disposable WAL capabilities
+        run: .venv/bin/python ../scripts/verify_ci_linux_runtime.py
       - name: Run Ruff linter
-        run: .venv/bin/python -m ruff check .
-
+        run: |
+          .venv/bin/python -m ruff check .
+          .venv/bin/python -m ruff check --config pyproject.toml ../scripts
       - name: Check Ruff formatting
-        run: .venv/bin/python -m ruff format --check .
-
+        run: |
+          .venv/bin/python -m ruff format --check .
+          .venv/bin/python -m ruff format --check --config pyproject.toml --line-length 88 ../scripts
       - name: Run mypy strict type check
-        run: .venv/bin/python -m mypy app tests migrations benchmarks
-
-      - name: Run pytest suite
-        run: .venv/bin/python -m pytest
+        run: .venv/bin/python -m mypy app tests migrations benchmarks ../scripts
+      - name: Run full pytest suite
+        run: .venv/bin/python -m pytest -q
 
   frontend:
     name: Frontend (Node 24 · TypeScript · ESLint · Vitest · Build)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js 24
-        uses: actions/setup-node@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: "24"
-          cache: "npm"
-          cache-dependency-path: "frontend/package-lock.json"
-
-      - name: Install dependencies
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.11.1'
+          architecture: x64
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frozen dependencies
         run: npm ci
-
       - name: Run TypeScript check
         run: npm run typecheck
-
       - name: Run ESLint
         run: npm run lint
-
-      - name: Run Vitest unit tests
-        run: npm test
-
+      - name: Run full Vitest suite
+        run: npm run test
       - name: Verify production build
         run: npm run build
 
   e2e:
     name: E2E (Chromium · isolated FastAPI + SQLite)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: "24"
-          cache: "npm"
-          cache-dependency-path: "frontend/package-lock.json"
-      - uses: astral-sh/setup-uv@v5
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
+          node-version: '24.11.1'
+          architecture: x64
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Set up pinned uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.13.6'
           enable-cache: true
-          cache-dependency-glob: "backend/uv.lock"
-      - name: Install uv-managed Python 3.12.16
-        working-directory: backend
-        run: uv python install --managed-python 3.12.16
-      - name: Prepare Python backend environment
+          cache-dependency-glob: backend/uv.lock
+      - name: Install exact isolated Python and frozen backend dependencies
         working-directory: backend
         run: |
-          ci_python="$(uv python find --managed-python --no-python-downloads --system 3.12.16)"
+          test "$(uname -m)" = x86_64
+          export UV_PYTHON_INSTALL_DIR="$RUNNER_TEMP/promptforge-python"
+          uv python install --managed-python --no-bin cpython-3.12.16-linux-x86_64-gnu
+          ci_python="$(uv python find --managed-python --no-python-downloads --system cpython-3.12.16-linux-x86_64-gnu)"
           uv sync --frozen --managed-python --no-python-downloads --python "$ci_python"
-      - name: Verify Python and connected SQLite runtimes
+          echo "PROMPTFORGE_E2E_PYTHON=$GITHUB_WORKSPACE/backend/.venv/bin/python" >> "$GITHUB_ENV"
+      - name: Install frozen frontend dependencies
+        run: npm ci
+      - name: Install locked Chromium and Linux system dependencies
+        run: npx --no-install playwright install --with-deps chromium
+      - name: Qualify Linux, connected SQLite and disposable WAL capabilities
         working-directory: backend
-        run: .venv/bin/python -m app.db.verify_ci_runtime
-      - run: npm ci
-      - name: Install Chromium and Linux system dependencies
-        run: npx playwright install --with-deps chromium
-      - name: Run E2E smoke tests
+        run: .venv/bin/python ../scripts/verify_ci_linux_runtime.py
+      - name: Run full Chromium suite (build first)
+        id: playwright
         run: npm run test:e2e
-      - name: Upload browser report and failure artifacts
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+      - name: Verify test servers and disposable resources were cleaned up
+        if: ${{ !cancelled() && (steps.playwright.outcome == 'success' || steps.playwright.outcome == 'failure') }}
+        run: |
+          ../backend/.venv/bin/python - <<'PY'
+          import socket
+          import tempfile
+          from pathlib import Path
+          root = Path(tempfile.gettempdir())
+          leftovers = [p.name for pattern in ('promptforge-e2e-*', 'promptforge-spa-e2e-*', 'promptforge-ci-runtime-*') for p in root.glob(pattern)]
+          if leftovers:
+              raise SystemExit('Disposable test directories remain; cleanup failed.')
+          for port in (15173, 18080):
+              with socket.socket() as connection:
+                  connection.settimeout(0.5)
+                  if connection.connect_ex(('127.0.0.1', port)) == 0:
+                      raise SystemExit('A dedicated test listener remains; cleanup failed.')
+          print('No disposable test directories or dedicated listeners remain.')
+          PY
+      - name: Prepare content-free browser failure status
+        id: browser_status
+        if: ${{ !cancelled() && steps.playwright.outcome == 'failure' }}
+        run: |
+          ../backend/.venv/bin/python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          source = Path('test-results/.last-run.json')
+          if source.is_file():
+              data = json.loads(source.read_text())
+              status = data.get('status')
+              failed = data.get('failedTests')
+              if status not in ('passed', 'failed', 'timedout', 'interrupted') or not isinstance(failed, list):
+                  raise ValueError('Unexpected Playwright status report shape.')
+              summary = {'status': status, 'failed_or_unrun_test_count': len(failed)}
+              destination = Path(os.environ['RUNNER_TEMP']) / 'playwright-status.json'
+              destination.write_text(json.dumps(summary) + '\n')
+              with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as outputs:
+                  outputs.write('created=true\n')
+          PY
+      - name: Upload only content-free browser failure status
+        if: ${{ !cancelled() && steps.playwright.outcome == 'failure' && steps.browser_status.outcome == 'success' && steps.browser_status.outputs.created == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: playwright-report
-          path: |
-            frontend/playwright-report/
-            frontend/test-results/
-          retention-days: 7
+          name: playwright-status
+          path: ${{ runner.temp }}/playwright-status.json
+          if-no-files-found: error
+          retention-days: 3
+
+  documentation:
+    name: Documentation and repository hygiene
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository and comparison history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Set up pinned uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.13.6'
+          enable-cache: false
+      - name: Verify documentation with exact isolated Python (no backend dependencies)
+        run: |
+          test "$(uname -m)" = x86_64
+          export UV_PYTHON_INSTALL_DIR="$RUNNER_TEMP/promptforge-python"
+          uv python install --managed-python --no-bin cpython-3.12.16-linux-x86_64-gnu
+          ci_python="$(uv python find --managed-python --no-python-downloads --system cpython-3.12.16-linux-x86_64-gnu)"
+          "$ci_python" -c 'import sys; assert sys.version_info[:3] == (3, 12, 16); print(sys.version)'
+          "$ci_python" scripts/check_docs.py
+          "$ci_python" scripts/check_ci_hygiene.py
+      - name: Check committed comparison whitespace
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          base="$BASE_SHA"
+          if [ -z "$base" ] || [ "$base" = 0000000000000000000000000000000000000000 ]; then
+            if [ "$GITHUB_REF" = refs/heads/main ]; then
+              base="$(git rev-parse HEAD^)"
+            else
+              base="$(git merge-base HEAD origin/main)"
+            fi
+          fi
+          git diff --check "$base" HEAD

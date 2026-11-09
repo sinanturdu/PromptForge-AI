@@ -963,13 +963,13 @@ describe('Server-side search, target AI filtering, and URL state management (Mil
         expect(window.location.search).toBe('?q=React&target_mode=anthropic')
       })
 
-      expect(await screen.findByText('React Claude kaydı #12')).toBeInTheDocument()
-
       // Push page 2 entry: ?q=React&target_mode=anthropic&page=2
       // The same record was visible before the debounced filter committed. Wait
-      // for that request and its current pagination, not a retained old DOM node.
+      // for that request, live row and current pagination in the same assertion;
+      // findByText can resolve with an old row just before the pending render removes it.
       await waitFor(() => {
         expect(getRecordedListQueries().at(-1)).toMatchObject({ rawQ: 'React', rawTargetMode: 'anthropic' })
+        expect(screen.getByText('React Claude kaydı #12')).toBeInTheDocument()
         const currentNav = screen.getByRole('navigation', { name: /Prompt geçmişi sayfalama/i })
         expect(within(currentNav).getByRole('button', { name: /Sonraki/i })).toBeEnabled()
       })
