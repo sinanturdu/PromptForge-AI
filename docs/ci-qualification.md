@@ -1,5 +1,9 @@
 # CI foundation and Linux qualification — M5F-5C-1
 
+The M5F-5C-1 observations below are historical. The subsequent M5F-5C-2/2A
+section records the actual published commit, hosted failure and local correction;
+it supersedes the earlier unpublished/pending integration state.
+
 This package prepares local CI configuration for review. **No push, PR, remote run,
 merge or release is performed.** Windows command results, configuration inspection,
 local Linux execution and GitHub-hosted execution are separate evidence levels.
@@ -264,3 +268,75 @@ and distinguish runtime, fixture and production defects; apply only reviewed nar
 PR checks must later pass on the merge revision too. Branch-protection/ruleset policy
 and final merge remain separately authorized M5F-5C-2/3 work; no release badge or
 released/merged/remote-green claim is made here.
+
+## M5F-5C-2 hosted evidence and M5F-5C-2A local correction
+
+The feature branch was published at
+`448dd5a6f5bf9f3f56a0d469ede94540877044a5`. The push-event
+[run 42726363096](https://github.com/sinanturdu/PromptForge-AI/actions/runs/42726363096),
+attempt 1 on 2026-11-10, completed with **FAILURE** on Ubuntu 24.04 x86_64.
+This is actual hosted evidence, separate from the earlier Windows results.
+
+| Hosted job | Result |
+| --- | --- |
+| Backend, job 129532892297 | FAIL in CI helper; Ruff, format, mypy and pytest skipped |
+| Frontend, job 129532892728 | PASS: TypeScript, ESLint, 192 tests in 9 files and production build |
+| Chromium, job 129532891934 | FAIL in CI helper after browser installation; browser suite and post-suite cleanup check skipped |
+| Documentation, job 129532892382 | PASS: 213 links in 49 Markdown files, hygiene and committed-diff whitespace |
+
+Both failing jobs observed Python **3.12.16**, actual sqlite3 and aiosqlite connected
+SQLite **3.53.1**, DB-API threadsafety 3 and `THREADSAFE=1`. The existing version
+policy passed. The CI-only helper then attempted `_sqlite3.__file__` and raised
+`AttributeError`: that attribute is absent in the selected built-in module build.
+Neither linkage inspection nor the disposable WAL/FULL/foreign-key probe completed.
+No backend or Chromium tests executed; this run does not qualify the release.
+
+This P2 CI-helper portability defect is a release qualification blocker. The
+[pinned upstream build notes](https://github.com/astral-sh/python-build-standalone/blob/fa506e0858ac9f2cc5b289c137b888a2aa24d1ee/docs/technotes.rst)
+describe extensions compiled into Python. Such a built-in has no separate extension
+file to pass to ldd. Missing `__file__` alone is not sufficient evidence of this mode.
+
+The local correction is confined to import-mode classification and linkage inspection:
+
+- A built-in requires the `_sqlite3` module/spec name, `origin='built-in'`, the
+  built-in importer, no file location and membership in `sys.builtin_module_names`.
+  The diagnostic explicitly states there is no extension file and external library
+  linkage was not inspected. It does not fabricate a path or claim ldd ran.
+- A shared extension requires a real existing extension file, the extension loader,
+  consistent resolved module/spec/loader paths, a valid extension suffix and no
+  contradictory built-in membership. It retains ldd and fails on inspection errors.
+- Unknown, missing or contradictory import metadata fails closed. All platform,
+  override, Python/connected-version, compile/thread and real database checks remain.
+  The probe still disposes its engine and removes its owned temporary directory.
+
+The new offline regression tests simulate import metadata and ldd only. They run
+the actual connected-version preflight and real disposable writer/probe for both
+modes, check runtime/probe failure propagation, and verify disposal and cleanup.
+These simulations do not establish that the corrected helper passes on real Linux.
+
+Local correction verification (Windows, existing private qualified environment):
+
+| Check | Status / evidence |
+| --- | --- |
+| Focused import-mode regression tests | PASS: 22 passed, zero failed/skipped |
+| Full backend suite | PASS: 1680 passed, zero failed/skipped; 437.13 seconds |
+| Strict mypy | PASS: 141 source files including migrations, benchmarks and scripts |
+| Ruff lint / format | PASS: backend and scripts; repository configuration preserved |
+| Actual Windows runtime preflight | PASS: Python 3.12.16; both real connected SQLite versions 3.53.1 |
+| Documentation / hygiene / whitespace / development DB non-mutation | PASS: 213 links in 49 Markdown files; filenames and 10 operator documents; tracked/untracked whitespace; DB SHA-256, size and modification time unchanged, WAL/SHM absent (values private) |
+| Frontend / browser reruns for this correction | NOT APPLICABLE: no frontend, browser or production changes; hosted frontend result above remains evidence for the published commit only |
+| Corrected real Linux helper and full hosted regression | PENDING: correction remains local and uncommitted |
+
+No workflow, production code, dependencies, migration, security policy or provider
+configuration changes. No paid calls, workflow reruns, settings changes or PR creation.
+Concrete local database fingerprints remain private. The release checklist's local
+MVP boundary remains unchanged; no additional checklist edit is needed.
+The full suite emitted one existing Starlette/httpx TestClient deprecation warning.
+An initial sandbox-restricted focused invocation stalled at async test startup and
+was stopped; the reported focused/full runs used the qualified interpreter outside
+that restriction. No test timeout, retry, skip or compatibility setting was changed.
+
+Next: independent full diff review, then separately approved commit/push to the
+existing branch. Verify a new hosted run on that new SHA, including the real
+capability probe and all four complete jobs, before Gate C PR approval. Do not
+rerun the unchanged failed commit as evidence for this correction.
