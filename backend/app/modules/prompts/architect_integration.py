@@ -17,6 +17,7 @@ from app.modules.prompts.architect_contracts import (
     critic_input_fingerprint,
     make_critic_input,
 )
+from app.modules.prompts.rendering import renderer_for_target
 from app.modules.prompts.schemas import PromptRequestCreate, PromptRequestRead
 
 __all__ = [
@@ -38,6 +39,7 @@ async def create_architect_handoff(
     *,
     context: ArchitectRunContext | None = None,
     request_id: str | None = None,
+    legacy_generic: bool = False,
 ) -> ArchitectHandoff:
     """Snapshot/bind existing identity, call once, and validate downstream semantics.
 
@@ -58,7 +60,8 @@ async def create_architect_handoff(
     payload = PromptRequestCreate.model_validate(source.model_dump(exclude={"id", "created_at"}))
     # Future curated REA evidence belongs at input assembly before this call;
     # original_request remains the unchanged source of intent for blind evaluation.
-    result = await agent.create(payload, request_id=request_id)
+    renderer = renderer_for_target(source.target_mode, legacy_generic=legacy_generic)
+    result = await agent.create(payload, request_id=request_id, legacy_generic=legacy_generic)
     validated = None
     handoff: ArchitectHandoff | None = None
     with suppress(ValidationError):
@@ -84,8 +87,8 @@ async def create_architect_handoff(
                 validated.canonical_prompt is not None
                 and validated.rendered_prompt is not None
                 and not validated.questions
-                and validated.renderer_name is not None
-                and validated.renderer_version is not None
+                and validated.renderer_name == renderer.name
+                and validated.renderer_version == renderer.version
             ):
                 handoff = CandidateReady(
                     original_request=source,

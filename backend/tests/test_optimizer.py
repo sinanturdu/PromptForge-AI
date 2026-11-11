@@ -227,10 +227,14 @@ class RecordingArchitect(PromptArchitectAgent):
         self.revisions: list[RevisionInput] = []
 
     async def create(
-        self, payload: PromptRequestCreate, *, request_id: str | None = None
+        self,
+        payload: PromptRequestCreate,
+        *,
+        request_id: str | None = None,
+        legacy_generic: bool = False,
     ) -> ArchitectResult:
         self.creates.append(payload.model_copy(deep=True))
-        return await super().create(payload, request_id=request_id)
+        return await super().create(payload, request_id=request_id, legacy_generic=legacy_generic)
 
     async def revise(
         self, revision_input: RevisionInput, *, request_id: str | None = None
@@ -764,11 +768,14 @@ async def test_real_agent_contract_violations_fail_before_next_critic(
             original = rig.author.create
 
             async def invalid(
-                payload: PromptRequestCreate, *, request_id: str | None = None
+                payload: PromptRequestCreate,
+                *,
+                request_id: str | None = None,
+                legacy_generic: bool = False,
             ) -> ArchitectResult:
-                return (await original(payload, request_id=request_id)).model_copy(
-                    update={"instruction_version": PRIVATE}
-                )
+                return (
+                    await original(payload, request_id=request_id, legacy_generic=legacy_generic)
+                ).model_copy(update={"instruction_version": PRIVATE})
 
             monkeypatch.setattr(rig.author, "create", invalid)
         outcome = await optimize_prompt(
@@ -885,7 +892,10 @@ async def test_programming_errors_are_not_disguised_as_quality_or_provider_failu
     async with setup([]) as rig:
 
         async def broken(
-            payload: PromptRequestCreate, *, request_id: str | None = None
+            payload: PromptRequestCreate,
+            *,
+            request_id: str | None = None,
+            legacy_generic: bool = False,
         ) -> ArchitectResult:
             raise failure
 
@@ -1020,10 +1030,13 @@ async def test_mutable_caller_request_is_pinned_before_first_await(
         original = rig.author.create
 
         async def mutate_caller(
-            payload: PromptRequestCreate, *, request_id: str | None = None
+            payload: PromptRequestCreate,
+            *,
+            request_id: str | None = None,
+            legacy_generic: bool = False,
         ) -> ArchitectResult:
             request.raw_prompt = PRIVATE + " changed by test caller"
-            return await original(payload, request_id=request_id)
+            return await original(payload, request_id=request_id, legacy_generic=legacy_generic)
 
         monkeypatch.setattr(rig.author, "create", mutate_caller)
         outcome = await optimize_prompt(rig.author, rig.critic, request)

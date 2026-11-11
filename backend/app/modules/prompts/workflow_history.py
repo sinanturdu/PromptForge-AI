@@ -81,6 +81,8 @@ def staged_candidate(
     ):
         raise PersistenceError("conflict")
     value = stored.candidate
+    if binding.operation == "create":
+        WorkflowConfiguration.from_json_value(row.config_snapshot).validate_initial_renderer(value)
     candidate = CandidateReady.model_validate(
         dict(
             original_request=source,

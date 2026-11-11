@@ -2,10 +2,11 @@
 
 import asyncio
 import hashlib
+import json
 import traceback
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import aiosqlite
 import pytest
@@ -14,13 +15,30 @@ from sqlalchemy import delete, event, text, update
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.revision_schemas import RevisedCandidate
 from app.core.config import build_sqlite_url
 from app.db.read_transactions import create_read_engine, read_snapshot
 from app.db.write_transactions import write_transaction
 from app.llm.errors import LLMErrorCode
 from app.llm.providers.fake import FakeLLMProvider
 from app.models import AgentRun, Evaluation, PromptRequest, PromptVersion, WorkflowRun
-from app.modules.prompts.workflow_persistence_contracts import PersistenceError
+from app.modules.prompts.architect_contracts import (
+    CandidateReady,
+    critic_input_fingerprint,
+    make_critic_input,
+)
+from app.modules.prompts.canonical import CanonicalPrompt
+from app.modules.prompts.persistence_contracts import request_content_digest
+from app.modules.prompts.rendering import GenericPromptRenderer, OpenAIPromptRenderer
+from app.modules.prompts.schemas import PromptRequestRead
+from app.modules.prompts.workflow_api_schemas import WorkflowResultResponse
+from app.modules.prompts.workflow_persistence_contracts import (
+    PersistenceError,
+    WorkflowConfiguration,
+    WorkflowCreation,
+    WorkflowExecutionSnapshot,
+    WorkflowFence,
+)
 from app.modules.prompts.workflow_read_repository import WorkflowReadRepository
 from workflow_read_fixtures import (
     NOTE,
@@ -35,6 +53,7 @@ from workflow_read_fixtures import (
     interrupted,
     new_workflow,
     script,
+    wire,
 )
 from workflow_read_fixtures import db as db
 
@@ -91,6 +110,204 @@ async def test_completed_history_readback(db: Environment, profiles: list[str], 
     assert content.history == result.outcome.history
     assert content.history is not None and len(content.history.rounds) == len(profiles)
     assert dump(db) == before and db.read_connections == 0
+
+
+async def _openai_workflow(
+    db: Environment, *, legacy: bool
+) -> tuple[WorkflowCreation, WorkflowConfiguration, str]:
+    async with write_transaction(db.writer) as session:
+        source = await session.get(PromptRequest, db.source.id)
+        assert source is not None
+        source.target_mode = "openai"
+        source_digest = request_content_digest(PromptRequestRead.model_validate(source))
+    config = WorkflowConfiguration(schema_version="1.0.0", max_evaluation_rounds=2)
+    created = await db.persistence.create_workflow(
+        db.source.id, config, client_idempotency_key="renderer-pilot"
+    )
+    async with write_transaction(db.writer) as session:
+        row = await session.get(WorkflowRun, created.workflow.id)
+        assert row is not None and row.config_snapshot is not None
+        assert row.config_snapshot == {
+            **config.model_dump(mode="json"),
+            "optimizer_version": "1.1.0",
+        }
+        assert row.request_content_digest is not None
+        assert row.request_content_digest != source_digest
+        if legacy:
+            # Reproduce both values written by pre-pilot creation.
+            row.config_snapshot = config.model_dump(mode="json")
+            row.request_content_digest = source_digest
+    return created, config, source_digest
+
+
+async def _flip_openai_policy(db: Environment, workflow_id: UUID, *, legacy: bool) -> None:
+    async with write_transaction(db.writer) as session:
+        row = await session.get(WorkflowRun, workflow_id)
+        assert row is not None and row.config_snapshot is not None
+        row.config_snapshot = {
+            **row.config_snapshot,
+            "optimizer_version": "1.1.0" if legacy else "1.0.0",
+        }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("legacy", [True, False], ids=["historical-openai", "openai-pilot"])
+async def test_openai_workflow_keeps_its_pinned_renderer_across_rounds(
+    db: Environment, legacy: bool
+) -> None:
+    created, config, _ = await _openai_workflow(db, legacy=legacy)
+    before_replay = dump(db)
+    replay = await db.persistence.create_workflow(
+        db.source.id, config, client_idempotency_key="renderer-pilot"
+    )
+    assert replay.replayed and replay.workflow == created.workflow
+    assert dump(db) == before_replay
+
+    task = RAW + "\nRevision 2."
+    constraint = '  Keep the original "Merhaba".\n'
+    canonical = CanonicalPrompt.from_task(task).model_copy(update={"constraints": (constraint,)})
+    replies = script(["critical", "qualified"])
+    replies[2] = wire(
+        dict(
+            decision="rewrite",
+            canonical_prompt=canonical.model_dump(mode="json"),
+            changes=[NOTE],
+            questions=[],
+            addressed_issue_keys=["issue_001"],
+        )
+    )
+    provider = PausingFake(replies)
+    try:
+        result = await execute(db, created.workflow, provider)
+        assert provider.calls == 4
+        initial_sent = json.loads(provider.requests[1].messages[1].content)
+        sent = json.loads(provider.requests[-1].messages[1].content)
+    finally:
+        await provider.aclose()
+
+    before_read = dump(db)
+    summary = await db.readback.read(created.workflow.id)
+    content = await db.readback.read_content(created.workflow.id)
+    assert summary.history_valid and not summary.findings
+    assert content.history is not None and content.history == result.outcome.history
+    initial, revised = (item.evaluated for item in content.history.rounds)
+    expected_renderer = "GenericPromptRenderer" if legacy else "OpenAIPromptRenderer"
+    expected = (
+        task + "\n\n" + constraint
+        if legacy
+        else ("## Task\n\n" + task + "\n\n## Constraints\n\n" + constraint)
+    )
+    assert initial.candidate.rendered_prompt == initial_sent["rendered_prompt"] == RAW
+    assert revised.candidate.rendered_prompt == sent["rendered_prompt"] == expected
+    assert sent["target_mode"] == "openai" and sent["renderer_name"] == expected_renderer
+    for item in (initial, revised):
+        assert (
+            item.candidate.renderer_name == item.critic.evaluated_renderer_name == expected_renderer
+        )
+        assert item.candidate.renderer_version == item.critic.evaluated_renderer_version == "1.0.0"
+        assert item.critic.input_fingerprint == critic_input_fingerprint(
+            make_critic_input(item.candidate)
+        )
+    assert summary.selected is not None
+    assert summary.selected.prompt_version_id == result.evaluations[1].prompt_version_id
+    selected = WorkflowResultResponse.from_readback(content).candidate
+    assert selected is not None and selected.rendered_prompt == sent["rendered_prompt"]
+
+    # Each identity works for OpenAI on its own, but a revision cannot swap them.
+    revision = content.history.rounds[1].revision
+    assert isinstance(revision, RevisedCandidate)
+    alternate = OpenAIPromptRenderer() if legacy else GenericPromptRenderer()
+    substituted = CandidateReady.model_validate(
+        {
+            **revision.candidate.model_dump(),
+            "renderer_name": alternate.name,
+            "renderer_version": alternate.version,
+            "rendered_prompt": alternate.render(revision.candidate.canonical_prompt),
+        }
+    )
+    with pytest.raises(ValidationError, match="must retain its baseline renderer"):
+        RevisedCandidate.model_validate(revision.model_copy(update={"candidate": substituted}))
+    assert dump(db) == before_read
+
+    # Both identities are legal for OpenAI, but switching an existing workflow's
+    # first-renderer policy must fail readback even if its rows agree with each other.
+    await _flip_openai_policy(db, created.workflow.id, legacy=legacy)
+    invalid = await db.readback.read(created.workflow.id)
+    assert invalid.findings and not invalid.history_valid and invalid.selected is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mutation", ["downgrade", "upgrade", "source-only-digest"])
+async def test_pending_openai_binding_blocks_replay_and_claim(
+    db: Environment, mutation: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    legacy = mutation == "upgrade"
+    created, config, source_digest = await _openai_workflow(db, legacy=legacy)
+    state = created.workflow
+    if mutation == "source-only-digest":
+        async with write_transaction(db.writer) as session:
+            row = await session.get(WorkflowRun, state.id)
+            assert row is not None
+            row.request_content_digest = source_digest
+    else:
+        await _flip_openai_policy(db, state.id, legacy=legacy)
+    before = dump(db)
+
+    with pytest.raises(PersistenceError) as replay:
+        await db.persistence.create_workflow(
+            db.source.id, config, client_idempotency_key="renderer-pilot"
+        )
+    assert replay.value.code == "conflict"
+
+    provider = PausingFake(script(["qualified"]))
+    try:
+        with pytest.raises(PersistenceError) as claim:
+            await execute(db, state, provider)
+        assert claim.value.code == "conflict"
+        assert provider.calls == 0 and not provider.requests
+    finally:
+        await provider.aclose()
+
+    summary = await db.readback.read(state.id)
+    assert summary.workflow.status == "PENDING" and not summary.workflow.claimed
+    assert not summary.history_valid
+    assert [finding.code for finding in summary.findings] == ["source_binding"]
+    assert not summary.operations and not summary.versions and not summary.evaluations
+    assert dump(db) == before
+    diagnostics = caplog.text + "".join(traceback.format_exception(replay.value))
+    diagnostics += "".join(traceback.format_exception(claim.value))
+    assert RAW not in diagnostics and PRIVATE not in diagnostics
+    assert source_digest not in diagnostics
+
+
+@pytest.mark.anyio
+async def test_policy_changed_after_execution_snapshot_blocks_initial_dispatch(
+    db: Environment, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    created, _, _ = await _openai_workflow(db, legacy=False)
+    original_snapshot = db.persistence.execution_snapshot
+    after_corruption: str | None = None
+
+    async def flip_after_snapshot(fence: WorkflowFence) -> WorkflowExecutionSnapshot:
+        nonlocal after_corruption
+        snapshot = await original_snapshot(fence)
+        assert snapshot.configuration.optimizer_version == "1.1.0"
+        await _flip_openai_policy(db, created.workflow.id, legacy=False)
+        after_corruption = dump(db)
+        return snapshot
+
+    monkeypatch.setattr(db.persistence, "execution_snapshot", flip_after_snapshot)
+    provider = PausingFake(script(["qualified"]))
+    try:
+        with pytest.raises(PersistenceError) as caught:
+            await execute(db, created.workflow, provider)
+        assert caught.value.code == "conflict"
+        assert provider.calls == 0 and not provider.requests and not db.reservations
+    finally:
+        await provider.aclose()
+    assert after_corruption is not None and dump(db) == after_corruption
+    summary = await db.readback.read(created.workflow.id)
+    assert not summary.history_valid and not summary.operations and not summary.evaluations
 
 
 @pytest.mark.anyio

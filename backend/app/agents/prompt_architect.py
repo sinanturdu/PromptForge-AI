@@ -31,7 +31,7 @@ from app.modules.prompts.architect_contracts import (
     make_critic_input,
 )
 from app.modules.prompts.canonical import CanonicalPrompt
-from app.modules.prompts.rendering import GenericPromptRenderer
+from app.modules.prompts.rendering import renderer_for_target, resolve_renderer
 from app.modules.prompts.schemas import PromptRequestCreate
 
 AGENT_VERSION: Final = "1.0.0"
@@ -43,7 +43,6 @@ class PromptArchitectAgent:
     def __init__(self, gateway: LLMGateway, model_settings: ModelSettings) -> None:
         self._gateway = gateway
         self._model_settings = model_settings
-        self._renderer = GenericPromptRenderer()
 
     @staticmethod
     def _snapshot(payload: PromptRequestCreate) -> PromptRequestCreate:
@@ -61,8 +60,10 @@ class PromptArchitectAgent:
         payload: PromptRequestCreate,
         *,
         request_id: str | None = None,
+        legacy_generic: bool = False,
     ) -> ArchitectResult:
         snapshot = self._snapshot(payload)
+        renderer = renderer_for_target(snapshot.target_mode, legacy_generic=legacy_generic)
         # This is the input assembly seam for future curated textual evidence.
         # It currently accepts only the existing request DTO; no REA placeholder.
         request = LLMRequest(
@@ -88,7 +89,7 @@ class PromptArchitectAgent:
             rendered = snapshot.raw_prompt
         elif output.decision == "rewrite":
             assert canonical is not None  # ArchitectOutput enforces this before return.
-            rendered = self._renderer.render(canonical)
+            rendered = renderer.render(canonical)
         return ArchitectResult(
             decision=output.decision,
             canonical_prompt=canonical,
@@ -99,8 +100,8 @@ class PromptArchitectAgent:
             metadata=generated.metadata,
             agent_version=AGENT_VERSION,
             instruction_version=INSTRUCTION_VERSION,
-            renderer_name=self._renderer.name if rendered is not None else None,
-            renderer_version=self._renderer.version if rendered is not None else None,
+            renderer_name=renderer.name if rendered is not None else None,
+            renderer_version=renderer.version if rendered is not None else None,
         )
 
     async def revise(
@@ -113,6 +114,11 @@ class PromptArchitectAgent:
                 snapshot = RevisionInput.model_validate(revision_input.model_dump(warnings=False))
         if snapshot is None:
             raise LLMError(LLMErrorCode.INVALID_REQUEST)
+        renderer = resolve_renderer(
+            snapshot.baseline.renderer_name,
+            snapshot.baseline.renderer_version,
+            target_mode=snapshot.baseline.original_request.target_mode,
+        )
         request = None
         with suppress(ValidationError):
             request = LLMRequest(
@@ -165,7 +171,7 @@ class PromptArchitectAgent:
                 )
             else:
                 assert output.canonical_prompt is not None  # Existing wire validator.
-                rendered = self._renderer.render(output.canonical_prompt)
+                rendered = renderer.render(output.canonical_prompt)
                 if rendered == snapshot.baseline.rendered_prompt:
                     # Discard claimed progress/changes; retain actual operation telemetry.
                     result = UnchangedBaseline.model_validate(
@@ -182,8 +188,8 @@ class PromptArchitectAgent:
                         canonical_prompt=output.canonical_prompt,
                         rendered_prompt=rendered,
                         changes=output.changes,
-                        renderer_name=self._renderer.name,
-                        renderer_version=self._renderer.version,
+                        renderer_name=renderer.name,
+                        renderer_version=renderer.version,
                     )
                     result = RevisedCandidate.model_validate(
                         dict(

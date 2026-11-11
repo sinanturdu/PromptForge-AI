@@ -16,16 +16,14 @@ from app.llm.errors import LLMError, LLMErrorCode
 from app.llm.gateway import LLMGateway
 from app.llm.schemas import CallMetadata, LLMMessage, LLMRequest, ModelSettings
 from app.modules.prompts.architect_integration import CriticInput, critic_input_fingerprint
-from app.modules.prompts.canonical import MAX_CANONICAL_CHARS, MAX_CANONICAL_ITEMS
 from app.modules.prompts.critic_validation import (
     validate_critic_evidence as validate_critic_evidence,
 )
+from app.modules.prompts.rendering import MAX_RENDERED_CHARS as MAX_RENDERED_CHARS
 from app.modules.prompts.rendering import resolve_renderer
 from app.scoring.rubric import RUBRIC_VERSION
 
 AGENT_VERSION: Final = "1.0.0"
-# Canonical content plus a conservative allowance for renderer joining separators.
-MAX_RENDERED_CHARS = MAX_CANONICAL_CHARS + 8 * MAX_CANONICAL_ITEMS + 32
 
 
 def _snapshot(payload: CriticInput) -> CriticInput:
@@ -33,13 +31,15 @@ def _snapshot(payload: CriticInput) -> CriticInput:
     if isinstance(payload, CriticInput):
         with suppress(ValueError):
             value = CriticInput.model_validate(payload.model_dump(warnings=False))
-            resolve_renderer(value.renderer_name, value.renderer_version)
-            snapshot = value
+            renderer = resolve_renderer(
+                value.renderer_name, value.renderer_version, target_mode=value.target_mode
+            )
+            if len(value.rendered_prompt) <= renderer.max_rendered_chars:
+                snapshot = value
     if (
         snapshot is None
         or snapshot.target_mode != snapshot.original_request.target_mode
         or not snapshot.rendered_prompt.strip()
-        or len(snapshot.rendered_prompt) > MAX_RENDERED_CHARS
     ):
         raise LLMError(LLMErrorCode.INVALID_REQUEST)
     return snapshot

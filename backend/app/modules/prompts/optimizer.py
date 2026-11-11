@@ -95,10 +95,16 @@ class _ArchitectDispatch(PromptArchitectAgent):
         self.agent, self.run, self.source, self.spans = agent, run, source, spans
 
     async def create(
-        self, payload: PromptRequestCreate, *, request_id: str | None = None
+        self,
+        payload: PromptRequestCreate,
+        *,
+        request_id: str | None = None,
+        legacy_generic: bool = False,
     ) -> ArchitectResult:
         self.run.begin("architect_create")
-        result = await self.agent.create(payload, request_id=request_id)
+        result = await self.agent.create(
+            payload, request_id=request_id, legacy_generic=legacy_generic
+        )
         self.run.check_deadline()
         if (
             not isinstance(result, ArchitectResult)

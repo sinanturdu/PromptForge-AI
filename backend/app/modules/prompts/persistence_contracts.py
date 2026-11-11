@@ -217,13 +217,15 @@ class CandidateStorage(PersistenceModel):
     rendered_prompt: str = Field(repr=False)
     changes: tuple[str, ...] = Field(repr=False)
     target_mode: TargetMode
-    # These literals are part of the version-one storage schema.
-    renderer_name: Literal["GenericPromptRenderer"]
+    # Version-one storage keeps the same keys and admits the new validated identity.
+    renderer_name: Literal["GenericPromptRenderer", "OpenAIPromptRenderer"]
     renderer_version: Literal["1.0.0"]
 
     @model_validator(mode="after")
     def validate_rendering(self) -> Self:
-        renderer = resolve_renderer(self.renderer_name, self.renderer_version)
+        renderer = resolve_renderer(
+            self.renderer_name, self.renderer_version, target_mode=self.target_mode
+        )
         if self.rendered_prompt != renderer.render(self.canonical_prompt):
             raise ValueError("Stored canonical and rendered prompt must agree exactly.")
         ArchitectOutput(

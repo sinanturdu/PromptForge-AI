@@ -56,6 +56,15 @@ def operation_binding(agent: AgentRun) -> OperationBindingStorage:
     return value
 
 
+def workflow_binding_digest(source: PromptRequestRead, config: WorkflowConfiguration) -> str:
+    """Bind new workflows to their initial renderer policy in the existing digest field."""
+    source_digest = request_content_digest(source)
+    if config.optimizer_version == "1.0.0":
+        return source_digest
+    binding = ("promptforge.workflow-binding.v1", source_digest, config.optimizer_version)
+    return hashlib.sha256(json.dumps(binding, separators=(",", ":")).encode("ascii")).hexdigest()
+
+
 async def bound_source(
     repository: WorkflowRunRepository,
     workflow: WorkflowRun,
@@ -70,7 +79,7 @@ async def bound_source(
     config = WorkflowConfiguration.from_json_value(workflow.config_snapshot)
     if (
         snapshot != RequestPreferenceSnapshot.from_request(source)
-        or workflow.request_content_digest != request_content_digest(source)
+        or workflow.request_content_digest != workflow_binding_digest(source, config)
         or workflow.max_evaluation_rounds != config.max_evaluation_rounds
     ):
         raise PersistenceError("conflict")
