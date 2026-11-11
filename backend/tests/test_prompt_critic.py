@@ -50,6 +50,7 @@ from app.modules.prompts.architect_integration import (
     ClarificationRequired,
     CriticInput,
     create_architect_handoff,
+    critic_input_fingerprint,
     make_critic_input,
 )
 from app.modules.prompts.canonical import CanonicalPrompt
@@ -81,6 +82,14 @@ def blind(raw: str = "Translate 'hello' into Turkish.", **updates: Any) -> Criti
         renderer_name=GenericPromptRenderer.name,
         renderer_version=GenericPromptRenderer.version,
     ).model_copy(update=updates)
+
+
+def test_generic_fingerprint_matches_m5f_vector() -> None:
+    # Captured on the M5F merge commit using this fixed request ID and timestamp.
+    payload = blind("  Türkçe metin.\n```python\n    pass\n```\n")
+    assert critic_input_fingerprint(payload) == (
+        "b3b40a5e304e004e25bc947dc412a450404e4c4c2e15a3253e87a28755cec9e8"
+    )
 
 
 def evidence(source: str = "raw_prompt", quote: str = "Translate") -> dict[str, str]:

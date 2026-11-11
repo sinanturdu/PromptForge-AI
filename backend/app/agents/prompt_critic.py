@@ -20,7 +20,7 @@ from app.modules.prompts.canonical import MAX_CANONICAL_CHARS, MAX_CANONICAL_ITE
 from app.modules.prompts.critic_validation import (
     validate_critic_evidence as validate_critic_evidence,
 )
-from app.modules.prompts.rendering import GenericPromptRenderer
+from app.modules.prompts.rendering import resolve_renderer
 from app.scoring.rubric import RUBRIC_VERSION
 
 AGENT_VERSION: Final = "1.0.0"
@@ -31,14 +31,13 @@ MAX_RENDERED_CHARS = MAX_CANONICAL_CHARS + 8 * MAX_CANONICAL_ITEMS + 32
 def _snapshot(payload: CriticInput) -> CriticInput:
     snapshot = None
     if isinstance(payload, CriticInput):
-        with suppress(ValidationError):
-            snapshot = CriticInput.model_validate(payload.model_dump(warnings=False))
-    renderer = GenericPromptRenderer()
+        with suppress(ValueError):
+            value = CriticInput.model_validate(payload.model_dump(warnings=False))
+            resolve_renderer(value.renderer_name, value.renderer_version)
+            snapshot = value
     if (
         snapshot is None
         or snapshot.target_mode != snapshot.original_request.target_mode
-        or snapshot.renderer_name != renderer.name
-        or snapshot.renderer_version != renderer.version
         or not snapshot.rendered_prompt.strip()
         or len(snapshot.rendered_prompt) > MAX_RENDERED_CHARS
     ):

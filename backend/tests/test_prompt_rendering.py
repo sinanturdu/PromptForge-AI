@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from app.agents.architect_schemas import ArchitectOutput
 from app.llm.providers._openai_schema import validate_schema
 from app.modules.prompts.canonical import MAX_CANONICAL_CHARS, CanonicalPrompt
-from app.modules.prompts.rendering import GenericPromptRenderer
+from app.modules.prompts.rendering import GenericPromptRenderer, resolve_renderer
 
 
 def content(**updates: Any) -> CanonicalPrompt:
@@ -23,6 +23,34 @@ def test_sparse_task_only_is_exact_with_no_wrapper() -> None:
     assert renderer.render(CanonicalPrompt.from_task(task)) == task
     assert renderer.render(CanonicalPrompt.from_task(task)) == task
     assert renderer.name == "GenericPromptRenderer" and renderer.version == "1.0.0"
+
+
+def test_resolver_accepts_exact_generic_identity() -> None:
+    renderer = resolve_renderer("GenericPromptRenderer", "1.0.0")
+    assert renderer.render(content(requirements=["Keep the original constraints."])) == (
+        "Explain the result.\n\nKeep the original constraints."
+    )
+
+
+@pytest.mark.parametrize(
+    "name,version",
+    [
+        (None, "1.0.0"),
+        ("GenericPromptRenderer", None),
+        ("", "1.0.0"),
+        ("GenericPromptRenderer", ""),
+        ("GenericPromptRenderer", 1),
+        (["GenericPromptRenderer"], "1.0.0"),
+        ("genericpromptrenderer", "1.0.0"),
+        ("GenericPromptRenderer ", "1.0.0"),
+        ("UnsupportedRenderer", "1.0.0"),
+        ("GenericPromptRenderer", "1.0.0 "),
+        ("GenericPromptRenderer", "2.0.0"),
+    ],
+)
+def test_resolver_rejects_inexact_identities(name: object, version: object) -> None:
+    with pytest.raises(ValueError, match=r"^Unsupported renderer identity\.$"):
+        resolve_renderer(name, version)
 
 
 def test_renderer_preserves_all_authored_content_and_order() -> None:

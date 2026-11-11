@@ -11,7 +11,7 @@ from pydantic import Field, field_validator, model_validator
 
 from app.llm.schemas import CallMetadata, LLMModel
 from app.models.enums import TargetMode
-from app.modules.prompts.rendering import GenericPromptRenderer
+from app.modules.prompts.rendering import resolve_renderer
 from app.scoring.rubric import CRITERIA, CriterionKey
 
 EvidenceSource = Literal[
@@ -200,12 +200,7 @@ class CriticResult(LLMModel):
 
     @model_validator(mode="after")
     def validate_result(self) -> Self:
-        renderer = GenericPromptRenderer()
-        if (
-            self.evaluated_renderer_name != renderer.name
-            or self.evaluated_renderer_version != renderer.version
-        ):
-            raise ValueError("Evaluated renderer is unsupported.")
+        resolve_renderer(self.evaluated_renderer_name, self.evaluated_renderer_version)
         if resolve_unassessable(self.output) != self.output:
             raise ValueError("Unsupported certainty must be resolved before result handoff.")
         if (

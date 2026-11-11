@@ -13,7 +13,7 @@ from app.llm.errors import LLMError, LLMErrorCode
 from app.llm.schemas import CallMetadata, LLMModel
 from app.models.enums import TargetMode
 from app.modules.prompts.canonical import CanonicalPrompt
-from app.modules.prompts.rendering import GenericPromptRenderer
+from app.modules.prompts.rendering import resolve_renderer
 from app.modules.prompts.schemas import PromptRequestCreate, PromptRequestRead
 
 
@@ -112,9 +112,7 @@ class CandidateReady(_ArchitectHandoff):
 
     @model_validator(mode="after")
     def validate_candidate(self) -> Self:
-        renderer = GenericPromptRenderer()
-        if self.renderer_name != renderer.name or self.renderer_version != renderer.version:
-            raise ValueError("Candidate renderer is unsupported.")
+        renderer = resolve_renderer(self.renderer_name, self.renderer_version)
         if self.rendered_prompt != renderer.render(self.canonical_prompt):
             raise ValueError("Candidate canonical and rendered content disagree.")
         if self.decision == "preserve" and (
