@@ -35,3 +35,29 @@ Selection, workflow rounds and persistence remain separate future responsibiliti
 
 - İçerik üretimi ile sözdizimsel derleme temiz biçimde ayrılır; her renderer bağımsız birim testleriyle doğrulanabilir ve değerlendirme izlenebilirliği korunur.
 
+## Amendment — M6-2 OpenAI renderer pilot
+
+`OpenAIPromptRenderer` 1.0.0 returns task-only content verbatim. With additional
+content it adds a Markdown level-two heading to each populated group, in this
+order: Task, Role, Context, Input, Requirements, Constraints, Prohibitions,
+Output format, Examples, Variables, Assumptions. Groups and examples use blank
+line separators. Other list items use single newlines. Each authored value is
+inserted unchanged, including its whitespace. Headings are formatting only.
+
+New OpenAI-target workflows use the pilot. Other targets and historical
+workflows retain the generic renderer. The existing version-one configuration
+field `optimizer_version` distinguishes the historical policy (`1.0.0`) from
+new OpenAI workflow creation (`1.1.0`). Historical workflows keep their
+source-only digest. New OpenAI workflows bind the exact source digest and
+optimizer policy under a versioned workflow digest domain in the existing
+`request_content_digest` field. Replay, claim, operation reservation and
+readback verify that binding even before a candidate exists.
+Version-one candidate JSON keeps its existing keys and now accepts either
+supported identity, subject to target compatibility. Revisions use the evaluated
+baseline renderer, and readback revalidates the recorded renderer and text.
+The Critic length limit adds only a fixed allowance for the pilot headings.
+Pre-M6-2 code rejects `optimizer_version=1.1.0` records, including `PENDING`
+workflows without a candidate. Rolling back application code after creating
+these records requires a compatible reader or a separately designed recovery
+procedure. Editing the stored policy fails the binding check.
+

@@ -129,7 +129,10 @@ async def test_representative_contract_cases(case: BenchmarkCase, level: PromptD
 @pytest.mark.anyio
 @pytest.mark.parametrize("target", list(TargetMode))
 @pytest.mark.parametrize("decision", ["preserve", "rewrite"])
-async def test_target_is_not_provider_or_template(target: TargetMode, decision: str) -> None:
+@pytest.mark.parametrize("legacy_generic", [False, True])
+async def test_target_selects_renderer_without_selecting_provider(
+    target: TargetMode, decision: str, legacy_generic: bool
+) -> None:
     raw = "  Translate 'hi' into Turkish. Return only the translation.\n"
     task = "  Translate 'hi' into Turkish.\n"
     constraint = "Return only the translation."
@@ -142,15 +145,22 @@ async def test_target_is_not_provider_or_template(target: TargetMode, decision: 
     gateway = RecordingGateway(provider)
     settings = ModelSettings(model="explicit-internal-model", max_output_tokens=512)
     result = await PromptArchitectAgent(gateway, settings).create(
-        PromptRequestCreate(raw_prompt=raw, target_mode=target)
+        PromptRequestCreate(raw_prompt=raw, target_mode=target), legacy_generic=legacy_generic
+    )
+    pilot = target is TargetMode.OPENAI and not legacy_generic
+    rewritten = (
+        "## Task\n\n" + task + "\n\n## Constraints\n\n" + constraint
+        if pilot
+        else task + "\n\n" + constraint
     )
     assert result.decision == decision
-    assert result.rendered_prompt == (raw if decision == "preserve" else task + "\n\n" + constraint)
+    assert result.rendered_prompt == (raw if decision == "preserve" else rewritten)
     assert result.target_mode == target
     assert result.metadata.provider == "fake"
     assert gateway.operations == provider.calls == 1
     assert provider.requests[0].settings == settings
-    assert result.renderer_name == "GenericPromptRenderer" and result.renderer_version == "1.0.0"
+    assert result.renderer_name == ("OpenAIPromptRenderer" if pilot else "GenericPromptRenderer")
+    assert result.renderer_version == "1.0.0"
     await provider.aclose()
 
 

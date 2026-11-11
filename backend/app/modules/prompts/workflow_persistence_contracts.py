@@ -15,11 +15,13 @@ from app.modules.prompts.architect_critic_pass import EvaluatedCandidate
 from app.modules.prompts.optimization_contracts import EvaluationHistory
 from app.modules.prompts.persistence_contracts import (
     CallMetadataStorage,
+    CandidateStorage,
     Digest,
     OperationResultStorage,
     PersistenceModel,
     TerminalDetailsStorage,
 )
+from app.modules.prompts.rendering import renderer_for_target
 
 Version = Annotated[str, Field(min_length=1, max_length=32)]
 OperationKey = Annotated[str, Field(min_length=1, max_length=64)]
@@ -54,8 +56,23 @@ class WorkflowConfiguration(PersistenceModel):
     max_evaluation_rounds: int = Field(default=3, ge=1, le=3)
     timeout_seconds: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     protected_spans: tuple[ProtectedSourceSpan, ...] = Field(default=(), max_length=32, repr=False)
-    optimizer_version: Literal["1.0.0"] = "1.0.0"
+    # The first renderer policy is pinned in the existing version-one JSON field.
+    optimizer_version: Literal["1.0.0", "1.1.0"] = "1.0.0"
     progress_policy_version: Literal["1.0.0"] = "1.0.0"
+
+    @property
+    def uses_legacy_renderer(self) -> bool:
+        return self.optimizer_version == "1.0.0"
+
+    def validate_initial_renderer(self, candidate: CandidateStorage) -> None:
+        renderer = renderer_for_target(
+            candidate.target_mode, legacy_generic=self.uses_legacy_renderer
+        )
+        if (candidate.renderer_name, candidate.renderer_version) != (
+            renderer.name,
+            renderer.version,
+        ):
+            raise PersistenceError("conflict")
 
 
 class WorkflowFence(LLMModel):

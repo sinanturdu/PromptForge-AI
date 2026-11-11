@@ -242,6 +242,11 @@ class RevisedCandidate(_RevisionOutcome):
             raise ValueError(
                 "Revised candidate must retain its original request and revision context."
             )
+        if (candidate.renderer_name, candidate.renderer_version) != (
+            self.baseline.renderer_name,
+            self.baseline.renderer_version,
+        ):
+            raise ValueError("Revised candidate must retain its baseline renderer.")
         if (
             candidate.metadata != self.metadata
             or candidate.agent_version != self.agent_version

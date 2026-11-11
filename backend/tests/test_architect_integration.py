@@ -97,7 +97,11 @@ class ReturningArchitect(PromptArchitectAgent):
         self.calls = 0
 
     async def create(
-        self, payload: PromptRequestCreate, *, request_id: str | None = None
+        self,
+        payload: PromptRequestCreate,
+        *,
+        request_id: str | None = None,
+        legacy_generic: bool = False,
     ) -> ArchitectResult:
         self.calls += 1
         if self.failure is not None:
@@ -214,6 +218,7 @@ async def test_cross_request_and_run_links_rejected_before_generation(
         {"changes": (NOTE,)},
         {"questions": (PRIVATE,)},
         {"renderer_name": "UntrustedRenderer"},
+        {"renderer_name": "OpenAIPromptRenderer"},
         {"renderer_version": "9.0.0"},
         {"canonical_prompt": None},
         {"metadata": CallMetadata(provider="fake", requested_model="fake-v1", attempts=0)},
@@ -327,11 +332,17 @@ async def test_source_snapshot_is_stable_during_generation() -> None:
 
     class PausingArchitect(PromptArchitectAgent):
         async def create(
-            self, payload: PromptRequestCreate, *, request_id: str | None = None
+            self,
+            payload: PromptRequestCreate,
+            *,
+            request_id: str | None = None,
+            legacy_generic: bool = False,
         ) -> ArchitectResult:
             entered.set()
             await release.wait()
-            return await super().create(payload, request_id=request_id)
+            return await super().create(
+                payload, request_id=request_id, legacy_generic=legacy_generic
+            )
 
     original = source()
     _, provider = agent_for()

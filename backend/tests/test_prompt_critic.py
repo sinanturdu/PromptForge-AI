@@ -54,7 +54,7 @@ from app.modules.prompts.architect_integration import (
     make_critic_input,
 )
 from app.modules.prompts.canonical import CanonicalPrompt
-from app.modules.prompts.rendering import GenericPromptRenderer
+from app.modules.prompts.rendering import GenericPromptRenderer, OpenAIPromptRenderer
 from app.modules.prompts.schemas import PromptRequestCreate, PromptRequestRead
 from app.scoring.engine import SCORING_VERSION, ScoringEngine
 from app.scoring.rubric import CRITERIA, RUBRIC_VERSION
@@ -595,6 +595,7 @@ def test_each_fixed_weight_contributes_exactly(key: str, weight: int, _definitio
         {"rendered_prompt": 42},
         {"target_mode": TargetMode.OPENAI},
         {"renderer_name": PRIVATE},
+        {"renderer_name": "OpenAIPromptRenderer"},
         {"renderer_version": "999"},
         {"original_request": None},
     ],
@@ -610,6 +611,39 @@ async def test_tampered_blind_input_rejected_before_provider(updates: dict[str, 
         assert caught.value.code == LLMErrorCode.INVALID_REQUEST
         assert caught.value.__context__ is None
         assert gateway.operations == provider.calls == 0
+    finally:
+        await provider.aclose()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("excess", [0, 1])
+async def test_openai_rendered_limit_is_enforced_before_dispatch(excess: int) -> None:
+    renderer = OpenAIPromptRenderer()
+    source = blind().original_request.model_copy(update={"target_mode": TargetMode.OPENAI})
+    payload = blind(
+        original_request=source,
+        target_mode=TargetMode.OPENAI,
+        renderer_name=renderer.name,
+        renderer_version=renderer.version,
+        rendered_prompt="x" * (renderer.max_rendered_chars + excess),
+    )
+    provider = RecordingFake([response(wire())])
+    gateway = RecordingGateway(provider)
+    agent = PromptCriticAgent(gateway, ModelSettings(model="fake-v1"))
+    try:
+        if excess:
+            with pytest.raises(LLMError) as caught:
+                await agent.evaluate(payload)
+            assert caught.value.code == LLMErrorCode.INVALID_REQUEST
+            assert provider.calls == 0
+        else:
+            result = await agent.evaluate(payload)
+            assert result.evaluated_renderer_name == renderer.name
+            assert result.input_fingerprint == critic_input_fingerprint(payload)
+            assert json.loads(provider.requests[0].messages[1].content)["rendered_prompt"] == (
+                payload.rendered_prompt
+            )
+            assert provider.calls == 1
     finally:
         await provider.aclose()
 

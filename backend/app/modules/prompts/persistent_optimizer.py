@@ -181,7 +181,11 @@ class _PersistentExecution:
         )
         handoff = await self._capture(
             create_architect_handoff(
-                architect, source, context=self._context(reservation), request_id=request_id
+                architect,
+                source,
+                context=self._context(reservation),
+                request_id=request_id,
+                legacy_generic=self.snapshot.configuration.uses_legacy_renderer,
             )
         )
         await self._stage(handoff)

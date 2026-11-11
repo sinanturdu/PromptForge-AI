@@ -200,7 +200,11 @@ class CriticResult(LLMModel):
 
     @model_validator(mode="after")
     def validate_result(self) -> Self:
-        resolve_renderer(self.evaluated_renderer_name, self.evaluated_renderer_version)
+        resolve_renderer(
+            self.evaluated_renderer_name,
+            self.evaluated_renderer_version,
+            target_mode=self.evaluated_target_mode,
+        )
         if resolve_unassessable(self.output) != self.output:
             raise ValueError("Unsupported certainty must be resolved before result handoff.")
         if (

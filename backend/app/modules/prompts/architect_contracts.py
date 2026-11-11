@@ -112,7 +112,9 @@ class CandidateReady(_ArchitectHandoff):
 
     @model_validator(mode="after")
     def validate_candidate(self) -> Self:
-        renderer = resolve_renderer(self.renderer_name, self.renderer_version)
+        renderer = resolve_renderer(
+            self.renderer_name, self.renderer_version, target_mode=self.original_request.target_mode
+        )
         if self.rendered_prompt != renderer.render(self.canonical_prompt):
             raise ValueError("Candidate canonical and rendered content disagree.")
         if self.decision == "preserve" and (

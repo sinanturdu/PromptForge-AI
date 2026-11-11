@@ -25,6 +25,7 @@ from app.db.write_transactions import write_transaction
 from app.llm.errors import LLMError, LLMErrorCode
 from app.llm.schemas import CallMetadata
 from app.models import AgentRun, Evaluation, PromptVersion, WorkflowRun
+from app.models.enums import TargetMode
 from app.modules.prompts.architect_contracts import (
     ArchitectHandoff,
     ArchitectRequestSnapshot,
@@ -47,7 +48,6 @@ from app.modules.prompts.persistence_contracts import (
     RequestPreferenceSnapshot,
     SafeErrorCode,
     TerminalDetailsStorage,
-    request_content_digest,
 )
 from app.modules.prompts.schemas import PromptRequestRead
 from app.modules.prompts.workflow_history import (
@@ -82,6 +82,7 @@ from app.modules.prompts.workflow_provenance import (
     observed_metadata,
     operation_binding,
     revision_binding,
+    workflow_binding_digest,
 )
 from app.modules.prompts.workflow_repository import (
     AgentRunRepository,
@@ -220,14 +221,27 @@ class WorkflowPersistenceService:
             for span in config.protected_spans:
                 span.text(source)
             preferences = RequestPreferenceSnapshot.from_request(source)
-            content_digest = request_content_digest(source)
             if digest is not None:
                 previous = await repository.get_idempotent(prompt_request_id, digest)
                 if previous is not None:
                     old_source, old_config = await bound_source(repository, previous)
-                    if old_source != source or old_config != config:
+                    # Creation replays retain the server-selected renderer policy.
+                    if (
+                        old_source != source
+                        or old_config.model_copy(
+                            update={"optimizer_version": config.optimizer_version}
+                        )
+                        != config
+                    ):
                         raise PersistenceError("conflict")
                     return WorkflowCreation(workflow=_workflow(previous), replayed=True)
+            config = config.model_copy(
+                update={
+                    "optimizer_version": "1.1.0"
+                    if source.target_mode is TargetMode.OPENAI
+                    else "1.0.0"
+                }
+            )
             row = WorkflowRun(
                 prompt_request_id=prompt_request_id,
                 status="PENDING",
@@ -236,7 +250,7 @@ class WorkflowPersistenceService:
                 completed_rounds=0,
                 config_snapshot=config.model_dump(mode="json"),
                 request_snapshot=preferences.model_dump(mode="json"),
-                request_content_digest=content_digest,
+                request_content_digest=workflow_binding_digest(source, config),
                 client_idempotency_key_digest=digest,
                 state_revision=0,
                 created_at=self._now(),
@@ -520,6 +534,8 @@ class WorkflowPersistenceService:
                 raise PersistenceError("conflict")
             if result.candidate is not None:
                 self._candidate_source(result.candidate, source)
+                if binding.operation == "create":
+                    config.validate_initial_renderer(result.candidate)
                 if any(
                     span.text(source) not in result.candidate.rendered_prompt
                     for span in config.protected_spans
