@@ -27,3 +27,14 @@ class GenericPromptRenderer:
         if prompt.assumptions:
             blocks.append("\n".join(prompt.assumptions))
         return "\n\n".join(block for block in blocks if block is not None)
+
+
+def resolve_renderer(name: object, version: object) -> GenericPromptRenderer:
+    """Resolve an explicit renderer identity from a candidate or stored record."""
+    if (
+        type(name) is not str
+        or type(version) is not str
+        or (name, version) != (GenericPromptRenderer.name, GenericPromptRenderer.version)
+    ):
+        raise ValueError("Unsupported renderer identity.")
+    return GenericPromptRenderer()

@@ -168,6 +168,8 @@ async def test_later_failure_retains_completed_history(db: Environment, count: i
         "source",
         "fingerprint",
         "render",
+        "version_renderer",
+        "evaluation_renderer",
         "canonical",
         "assessment",
         "rubric",
@@ -201,6 +203,10 @@ async def test_inconsistent_persisted_data_produces_typed_findings_without_repai
             evaluation.input_fingerprint = "f" * 64
         elif mutation == "render":
             version.rendered_prompt = PRIVATE
+        elif mutation == "version_renderer":
+            version.renderer_version = "2.0.0"
+        elif mutation == "evaluation_renderer":
+            evaluation.evaluated_renderer_name = "UnsupportedRenderer"
         elif mutation == "canonical":
             version.canonical_prompt = {"private": PRIVATE}
         elif mutation == "assessment":

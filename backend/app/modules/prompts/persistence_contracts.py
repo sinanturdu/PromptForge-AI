@@ -42,7 +42,7 @@ from app.modules.prompts.optimizer_contracts import (
     TerminationReason,
     failure_reason,
 )
-from app.modules.prompts.rendering import GenericPromptRenderer
+from app.modules.prompts.rendering import resolve_renderer
 from app.modules.prompts.schemas import PromptRequestRead
 from app.scoring.engine import ScoringEngine
 from app.scoring.schemas import GateResults, ScoringResult
@@ -217,12 +217,14 @@ class CandidateStorage(PersistenceModel):
     rendered_prompt: str = Field(repr=False)
     changes: tuple[str, ...] = Field(repr=False)
     target_mode: TargetMode
+    # These literals are part of the version-one storage schema.
     renderer_name: Literal["GenericPromptRenderer"]
     renderer_version: Literal["1.0.0"]
 
     @model_validator(mode="after")
     def validate_rendering(self) -> Self:
-        if self.rendered_prompt != GenericPromptRenderer().render(self.canonical_prompt):
+        renderer = resolve_renderer(self.renderer_name, self.renderer_version)
+        if self.rendered_prompt != renderer.render(self.canonical_prompt):
             raise ValueError("Stored canonical and rendered prompt must agree exactly.")
         ArchitectOutput(
             decision=self.decision,

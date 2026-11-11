@@ -128,6 +128,23 @@ def storage(value: EvaluatedCandidate) -> EvaluationStorage:
     )
 
 
+def test_legacy_generic_candidate_json_is_readable_without_conversion() -> None:
+    legacy = {
+        "schema_version": "1.0.0",
+        "prompt_request_id": str(UUID(int=1)),
+        "decision": "preserve",
+        "canonical_prompt": CanonicalPrompt.from_task(RAW).model_dump(mode="json"),
+        "rendered_prompt": RAW,
+        "changes": [],
+        "target_mode": "google",
+        "renderer_name": "GenericPromptRenderer",
+        "renderer_version": "1.0.0",
+    }
+    stored = CandidateStorage.from_json_value(legacy)
+    assert stored.rendered_prompt == RAW
+    assert stored.model_dump(mode="json") == legacy
+
+
 def test_preferences_reference_and_digest_do_not_copy_original_content() -> None:
     request = source()
     before = request.model_dump_json()
