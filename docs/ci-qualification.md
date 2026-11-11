@@ -1,8 +1,8 @@
 # CI foundation and Linux qualification — M5F-5C-1
 
-The M5F-5C-1 observations below are historical. The subsequent M5F-5C-2/2A
-section records the actual published commit, hosted failure and local correction;
-it supersedes the earlier unpublished/pending integration state.
+The M5F-5C-1 observations below are historical. The M5F-5C-2 through M5F-5C-2B
+sections record publication, hosted results and local corrections. They supersede
+the earlier unpublished integration state.
 
 This package prepares local CI configuration for review. **No push, PR, remote run,
 merge or release is performed.** Windows command results, configuration inspection,
@@ -340,3 +340,51 @@ Next: independent full diff review, then separately approved commit/push to the
 existing branch. Verify a new hosted run on that new SHA, including the real
 capability probe and all four complete jobs, before Gate C PR approval. Do not
 rerun the unchanged failed commit as evidence for this correction.
+
+## M5F-5C-2A hosted verification and M5F-5C-2B local correction
+
+[Hosted run 42730730256](https://github.com/sinanturdu/PromptForge-AI/actions/runs/42730730256)
+completed on published commit `5ce9cdf2bcfbdd19900ffbd9c466a70ba072b06a`.
+The Backend and Chromium jobs both passed the real Linux runtime gate with
+Python 3.12.16, connected SQLite 3.53.1 through each driver, and the disposable
+WAL/FULL/foreign-key probe. This verifies the built-in SQLite correction on Linux.
+
+| Hosted check | Result |
+| --- | --- |
+| Linux SQLite qualification | PASS in Backend and Chromium |
+| Frontend | PASS, 192 tests |
+| Chromium | PASS, 34 tests and post-suite cleanup |
+| Documentation | PASS, 213 links plus hygiene and whitespace |
+| Backend Ruff lint and format | PASS |
+| Backend strict mypy | FAIL, one `attr-defined` error in 141 source files |
+| Backend pytest | NOT RUN, mypy stopped the job |
+
+Linux mypy reported `Module has no attribute "SO_EXCLUSIVEADDRUSE" [attr-defined]`
+at `backend/app/core/execution_environment.py:123`, inside the Windows branch
+of listener preparation. The local correction retrieves
+the attribute dynamically and requires an integer matching the Winsock definition
+before applying the option. An absent or invalid option raises before bind. A
+`setsockopt` error propagates through the existing socket context manager, which
+closes the socket. The lookup runs only on Windows.
+See the [Windows SDK definition](https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/RecompiledIdlHeaders/um/WinSock2.h#L385).
+
+The new tests cover option application before bind, missing and invalid metadata,
+propagation of socket option errors, and the non-Windows path. Existing tests
+exercise IPv4 and IPv6 listener ownership, handoff and qualification.
+
+Windows strict mypy passed across app, tests, migrations, benchmarks and scripts
+(141 source files). The same Windows-hosted command with `--platform linux`
+reproduced the hosted error using the committed file via `--shadow-file` and
+passed all 141 files with the correction. A native Windows socket check
+confirmed exclusive use and closure on both IPv4 and IPv6 loopback listeners.
+The focused suite passed 217 tests, including 10 new cases. Full backend pytest
+passed 1,690 tests in 392.73 seconds with zero failures or skips. Both runs
+reported the existing Starlette/httpx TestClient deprecation warning. Ruff lint
+and formatting passed. The Windows runtime preflight verified Python 3.12.16
+and connected SQLite 3.53.1 through both drivers. Documentation, hygiene and
+Git whitespace checks passed. The development database SHA-256, size and
+modification time matched the private baseline, and WAL/SHM files were absent.
+
+Linux mypy and hosted Backend pytest for this correction remain pending. After
+independent diff review and a separately approved commit and push, verify all
+four jobs on the new SHA before Gate C.

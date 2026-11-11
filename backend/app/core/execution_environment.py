@@ -120,7 +120,11 @@ def prepare_local_execution_server(
     family = socket.AF_INET6 if host == "::1" else socket.AF_INET
     with socket.socket(family, socket.SOCK_STREAM) as listener:
         if os.name == "nt":
-            listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            exclusive_addr_use: object = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+            # Winsock defines SO_EXCLUSIVEADDRUSE as the complement of SO_REUSEADDR.
+            if type(exclusive_addr_use) is not int or exclusive_addr_use != ~socket.SO_REUSEADDR:
+                raise RuntimeError("Windows execution requires a valid SO_EXCLUSIVEADDRUSE option.")
+            listener.setsockopt(socket.SOL_SOCKET, exclusive_addr_use, 1)
         if family == socket.AF_INET6:
             listener.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
         listener.bind((host, port))

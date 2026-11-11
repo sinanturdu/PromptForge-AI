@@ -5,12 +5,15 @@ No optimizer, workflow runner, provider dispatch or application database is used
 
 import asyncio
 import os
+import socket
 from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from threading import Barrier
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import MagicMock, call
 from uuid import uuid4
 
 import pytest
@@ -20,6 +23,7 @@ from starlette.types import Scope
 
 from app.api import execution_admission as admission
 from app.api.workflow_security import execution_request_is_local
+from app.core import execution_environment
 from app.core.config import Settings
 from app.core.execution_environment import (
     ExecutionRuntimeQualification,
@@ -531,6 +535,82 @@ def test_preparation_never_binds_unverified_address(host: str) -> None:
         prepare_local_execution_server(FastAPI(), host=host, port=0),
     ):
         pytest.fail("Unsafe address was accepted")
+
+
+@pytest.fixture
+def listener_stub(monkeypatch: pytest.MonkeyPatch) -> tuple[SimpleNamespace, MagicMock]:
+    listener = MagicMock(spec=socket.socket)
+    listener.__enter__.return_value = listener
+    listener.getsockname.return_value = ("127.0.0.1", 18080)
+    socket_api = SimpleNamespace(
+        AF_INET=socket.AF_INET,
+        AF_INET6=socket.AF_INET6,
+        SOCK_STREAM=socket.SOCK_STREAM,
+        SOL_SOCKET=socket.SOL_SOCKET,
+        SO_REUSEADDR=4,  # Winsock constant, independent of the test host.
+        socket=MagicMock(return_value=listener),
+    )
+    monkeypatch.setattr(execution_environment, "socket", socket_api)
+    monkeypatch.setattr(execution_environment, "os", SimpleNamespace(name="nt"))
+    return socket_api, listener
+
+
+def test_windows_listener_applies_exclusive_option_before_bind(
+    listener_stub: tuple[SimpleNamespace, MagicMock],
+) -> None:
+    socket_api, listener = listener_stub
+    socket_api.SO_EXCLUSIVEADDRUSE = -5
+    with prepare_local_execution_server(FastAPI(), port=0) as prepared:
+        assert prepared.socket is listener
+        assert listener.method_calls[:3] == [
+            call.setsockopt(socket.SOL_SOCKET, -5, 1),
+            call.bind(("127.0.0.1", 0)),
+            call.listen(16),
+        ]
+    listener.__exit__.assert_called_once_with(None, None, None)
+
+
+@pytest.mark.parametrize("value", [None, True, "-5", -5.0, 0, 4, -129])
+def test_windows_listener_rejects_missing_or_invalid_exclusive_option(
+    listener_stub: tuple[SimpleNamespace, MagicMock], value: object
+) -> None:
+    socket_api, listener = listener_stub
+    if value is not None:
+        socket_api.SO_EXCLUSIVEADDRUSE = value
+    with (
+        pytest.raises(RuntimeError, match="requires a valid SO_EXCLUSIVEADDRUSE"),
+        prepare_local_execution_server(FastAPI(), port=0),
+    ):
+        pytest.fail("Listener accepted invalid exclusive socket option metadata")
+    listener.setsockopt.assert_not_called()
+    listener.bind.assert_not_called()
+    listener.__exit__.assert_called_once()
+
+
+def test_windows_listener_propagates_exclusive_option_failure(
+    listener_stub: tuple[SimpleNamespace, MagicMock],
+) -> None:
+    socket_api, listener = listener_stub
+    socket_api.SO_EXCLUSIVEADDRUSE = -5
+    error = OSError("exclusive option rejected")
+    listener.setsockopt.side_effect = error
+    with pytest.raises(OSError) as raised, prepare_local_execution_server(FastAPI(), port=0):
+        pytest.fail("Listener accepted a failed exclusive socket option")
+    assert raised.value is error
+    listener.setsockopt.assert_called_once_with(socket.SOL_SOCKET, -5, 1)
+    listener.bind.assert_not_called()
+    listener.__exit__.assert_called_once()
+
+
+def test_non_windows_listener_does_not_require_exclusive_option(
+    listener_stub: tuple[SimpleNamespace, MagicMock], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, listener = listener_stub
+    monkeypatch.setattr(execution_environment, "os", SimpleNamespace(name="posix"))
+    with prepare_local_execution_server(FastAPI(), port=0) as prepared:
+        assert prepared.socket is listener
+    listener.setsockopt.assert_not_called()
+    listener.bind.assert_called_once_with(("127.0.0.1", 0))
 
 
 def test_occupied_listener_fails_and_prepared_socket_closes() -> None:
