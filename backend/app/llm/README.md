@@ -7,7 +7,9 @@ provider and gateway, available as `app.state.llm_gateway`, and closes the provi
 once on shutdown. `AsyncExitStack` also closes already-created resources if later
 startup steps fail; database cleanup still runs if provider cleanup raises. An
 injected SDK client retains its adapter-level ownership rules. Construction and
-health checks never generate content. No public AI endpoint is exposed.
+health checks never generate content. There is no standalone generation endpoint;
+M5F's separately gated explicit workflow start uses this existing gateway through the
+supervised optimizer. See [local operation and cost safety](../../../docs/local-mvp-operations.md).
 
 `create_provider(settings, script=...)` supports `fake` (the default) and explicit
 `openai`. Unsupported selections fail validation and never fall back silently.

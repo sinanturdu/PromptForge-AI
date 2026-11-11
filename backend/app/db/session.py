@@ -100,6 +100,7 @@ def create_db_engine(
     engine = create_async_engine(
         database_url,
         echo=echo,
+        hide_parameters=True,
         pool_pre_ping=True,
         connect_args=connect_args,
     )

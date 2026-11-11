@@ -13,7 +13,7 @@ import { createServer, type ViteDevServer } from 'vite'
 export default async function globalSetup() {
   const frontend = fileURLToPath(new URL('../', import.meta.url))
   const backend = path.resolve(frontend, '../backend')
-  const python = path.join(backend, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python')
+  const python = process.env.PROMPTFORGE_E2E_PYTHON || path.join(backend, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python')
   const temporaryDirectory = await mkdtemp(path.join(tmpdir(), 'promptforge-e2e-'))
   const database = path.join(temporaryDirectory, 'e2e.sqlite3')
   const service = `promptforge-e2e-${randomUUID()}`

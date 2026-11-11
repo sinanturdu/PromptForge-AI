@@ -14,7 +14,7 @@ export function NewPromptPage() {
       </header>
       <PromptSubmitForm />
       <p className="text-sm leading-relaxed text-slate-400">
-        Bu sürüm yalnızca prompt isteklerini ve tercihlerini kaydeder. AI optimizasyonu henüz etkin değildir.
+        Kaydetmek optimizasyon başlatmaz. Kaydının detaylarından, uygun yerel ortamda ayrıca optimizasyon yapılandırabilirsin.
       </p>
     </div>
   )

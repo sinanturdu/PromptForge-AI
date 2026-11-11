@@ -76,6 +76,7 @@ class _PersistentExecution:
         snapshot: WorkflowExecutionSnapshot,
         identity: PersistentExecutionIdentity,
         lease_seconds: int,
+        on_state: Callable[[WorkflowState], None] | None = None,
     ) -> None:
         self.persistence, self.snapshot, self.identity = persistence, snapshot, identity
         self.state = snapshot.workflow
@@ -84,6 +85,12 @@ class _PersistentExecution:
         self.last_architect_id: UUID | None = None
         self.failure_metadata: CallMetadata | None = None
         self.uncertain = False
+        self._on_state = on_state
+
+    def _set_state(self, state: WorkflowState) -> None:
+        self.state = state
+        if self._on_state is not None:
+            self._on_state(state)
 
     async def _capture[T](self, operation: Awaitable[T]) -> T:
         try:
@@ -107,8 +114,8 @@ class _PersistentExecution:
     async def _reserve(
         self, binding: OperationBindingStorage, payload: RevisionInput | None = None
     ) -> OperationReceipt:
-        self.state = await self.persistence.renew_claim(
-            self.state.fence(), lease_seconds=self.lease_seconds
+        self._set_state(
+            await self.persistence.renew_claim(self.state.fence(), lease_seconds=self.lease_seconds)
         )
         critic = binding.operation == "evaluate"
         identity = OperationIdentity(
@@ -126,7 +133,7 @@ class _PersistentExecution:
         receipt = await self.persistence.reserve_operation(
             self.state.fence(), identity, binding, revision_input=payload
         )
-        self.state = receipt.workflow
+        self._set_state(receipt.workflow)
         if receipt.replayed:
             # Even RUNNING may mean an earlier provider call happened. M5E-5 owns it.
             raise PersistenceError("conflict")
@@ -153,7 +160,7 @@ class _PersistentExecution:
                 fence, active.agent.id, handoff, defer_clarification=True
             )
         )
-        self.state = receipt.workflow
+        self._set_state(receipt.workflow)
         self.last_architect_id = active.agent.id
         self.active = None
 
@@ -245,7 +252,8 @@ class _PersistentExecution:
             evaluated=completed.evaluated,
         )
         receipt = await self._complete(lambda: self.persistence.complete_evaluation(command))
-        self.state, self.active = receipt.workflow, None
+        self._set_state(receipt.workflow)
+        self.active = None
         self.snapshot = await self.persistence.execution_snapshot(self.state.fence())
         if self.snapshot.history != history:
             raise PersistenceError("invalid")
@@ -298,7 +306,7 @@ class _PersistentExecution:
                         metadata=self.failure_metadata,
                     )
                 )
-                self.state = receipt.workflow
+                self._set_state(receipt.workflow)
         elif outcome.execution_status == "clarification_required" or outcome.termination_reason in {
             "unchanged_baseline",
             "already_evaluated",
@@ -324,6 +332,7 @@ async def execute_persisted_optimizer(
     expected_revision: int = 0,
     lease_seconds: int = 300,
     request_id: str | None = None,
+    on_state: Callable[[WorkflowState], None] | None = None,
 ) -> PersistentOptimizationResult:
     """Explicit new claim only. No workflow creation, implicit resume or provider ownership."""
     try:
@@ -334,8 +343,10 @@ async def execute_persisted_optimizer(
             expected_revision=expected_revision,
             lease_seconds=lease_seconds,
         )
+        if on_state is not None:
+            on_state(state)
         snapshot = await persistence.execution_snapshot(state.fence())
-        execution = _PersistentExecution(persistence, snapshot, identity, lease_seconds)
+        execution = _PersistentExecution(persistence, snapshot, identity, lease_seconds, on_state)
         config = snapshot.configuration
         outcome = await optimize_prompt(
             architect,

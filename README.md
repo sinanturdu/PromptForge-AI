@@ -1,240 +1,120 @@
 # PromptForge AI
 
-**PromptForge AI**, sıradan kullanıcı isteklerini yapılandırılmış, bağımsız olarak değerlendirilmiş ve hedef yapay zekâ modeline uygun biçimde derlenmiş yüksek kaliteli promptlara dönüştürmek üzere tasarlanmış modüler çoklu ajan (multi-agent) yazılım platformudur.
+PromptForge AI turns natural-language requests into useful prompts with an
+Outcome-First Architect and an independent Critic. An effective original can be
+preserved exactly; missing essential information can lead to clarification instead
+of invented requirements. Useful specificity matters more than length.
 
----
+**Scope: a trusted, single-operator local MVP.** There is no authentication or public
+deployment qualification. Workflow reads and execution default to disabled. M5F-5B
+prepares local qualification and documentation; release approval, Linux CI and final
+integration review remain M5F-5C work.
 
-## Temel Hedefler
+## Implemented capabilities
 
-- Ham kullanıcı isteklerindeki belirsizlikleri ve eksik gereksinimleri tespit ederek niyeti koruyan yapılandırılmış promptlar (`CanonicalPrompt`) üretmek
-- Üretilen promptları ayrı bir **Prompt Critic** ajanıyla bağımsız olarak denetlemek ve kod tabanlı deterministik puanlama (100 üzerinden) uygulamak
-- En fazla **3 değerlendirme turu** (`evaluation_round` 1–3) ile sınırlı, kontrollü bir otomatik revizyon döngüsü işletmek
-- Deterministik derleyiciler (Prompt Renderers) aracılığıyla **Universal**, **ChatGPT / GPT**, **Claude** ve **Gemini** hedeflerine uygun çıktılar üretmek
-- Uzun vadede yazılım projelerini planlayan, geliştiren, test eden ve güvenlik açısından inceleyen uzman yapay zekâ ajanlarını koordine eden bir platforma dönüşmek
+| Area | Available behavior |
+| --- | --- |
+| Prompt requests | Save, persist, search, filter, paginate and reopen prompts/preferences |
+| Architect | Preserve, rewrite or clarify; sparse canonical content and generic rendering |
+| Critic | Blind independent assessment, nine criteria, evidence and deterministic scoring |
+| Optimization | Explicit create then start; up to three evaluations and bounded revision/selection |
+| Persistence | Migrated SQLite, fenced ownership, atomic evaluated history and finalization |
+| Progress | Scoped GET polling while visible/active; terminal, error and pause stopping |
+| Results | Backend-selected prompt, separate quality outcome, history, comparison and exact copying |
+| Integrity | Revocation survives view remounts; only explicit fresh validated result reads can recover |
 
----
+```mermaid
+flowchart LR
+    UI["Turkish React UI"] -->|"Save"| API["FastAPI"]
+    UI -->|"Explicit create / start"| OWNER["Owned local listener + supervisor"]
+    OWNER --> ARCH["Architect: create / revise"]
+    ARCH --> CRITIC["Blind Critic + deterministic scoring"]
+    CRITIC -->|"Revise within bound"| ARCH
+    CRITIC --> DB[("SQLite: evaluated history + selection")]
+    DB -->|"Validated GETs"| UI
+```
 
-## Mevcut Uygulama Durumu (Milestone 4B-2 — Tamamlandı)
+Saving never starts optimization. HTTP 202 means task acceptance, not completion or
+quality approval. FAILED and CLARIFICATION_REQUIRED are terminal outcomes, not successful
+final prompts. Fake tests establish contracts and UI behavior, not real-model quality.
 
-> **Güncel Durum (M5C-2):** Temel API/veritabanı, M4 frontend/E2E, M5A LLM katmanı ve M5B Outcome-First Prompt Architect uygulanmıştır. M5C-2 bağımsız PromptCriticAgent ve deterministik ScoringEngine ekler. Ajanlar bellek içi bileşenlerdir; mevcut prompt-request API davranışı değişmez. Workflow, değerlendirme tabloları/kalıcılık, hedefe özgü renderer'lar, REA, token analizi ve sesli girdi planlanmaktadır. Rubric 2.0.0, offline testler ve sınırlar için [Critic dokümanına](docs/prompt-critic.md) bakınız.
+## Start here
 
-**Şu anda çalışan bileşenler:**
+1. [Windows local setup](docs/local-mvp-setup.md): interpreter, frozen dependencies,
+   connected SQLite qualification, dedicated database, frontend build and startup.
+2. [Operations, configuration and security](docs/local-mvp-operations.md): exact modes,
+   environment reference, provider costs, runtime limits and safe maintenance.
+3. [Troubleshooting](docs/local-mvp-troubleshooting.md): safe diagnostics and resolutions.
+4. [Acceptance and release checklist](docs/local-mvp-release-checklist.md): automated
+   evidence, manual checks, reproducibility limits and M5F-5C gates.
 
-- `backend/` ve `frontend/` ayrımına sahip temiz monorepo yapısı
-- Python 3.12 ve `uv` ile yapılandırılmış FastAPI uygulaması (`GET /api/v1/health`, `POST/GET /api/v1/prompt-requests` — sunucu taraflı `q` anahtar kelime araması, `target_mode` filtreleme ve sayfalama destekli — ve otomatik OpenAPI dokümantasyonu `/docs`)
-- `pydantic-settings` ortam yapılandırması (`DATABASE_URL`, `LOG_LEVEL`, `MAX_REQUEST_BODY_BYTES`, CWD'den bağımsız `backend/data/promptforge.db` varsayılanı) ve SQLAlchemy 2.0 Async + `aiosqlite` oturum altyapısı
-- SQLAlchemy 2.0 `DeclarativeBase` (`app/db/base.py`), ilk dört temel ORM modeli (`PromptRequest`, `WorkflowRun`, `PromptVersion`, `AgentRun`) ve CWD'den bağımsız asenkron Alembic göç sistemi (`0001_initial_schema`)
-- Yapılandırılmış UTC JSON loglama, sunucu taraflı `X-Request-ID` izleme, HTTP gövde boyutu sınırı ve merkezi RFC 9457 Problem Details (`application/problem+json`) hata yönetimi
-- React 19, Vite 8, TypeScript (`strict`), Tailwind CSS v4, React Router ve TanStack Query ile geliştirilmiş Türkçe prompt gönderim formu (`/`), sunucu taraflı arama (`q`, ~350 ms debounce), hedef yapay zekâ ailesi filtreleme (`target_mode`), sayfalama ve tam URL durum senkronizasyonuna sahip prompt geçmişi sayfası (`/history`), mobil/masaüstü uyumlu üst gezinme çubuğu, filtre ve sayfa durumunu koruyan UUID tabanlı prompt detay sayfası (`/prompt-requests/:id`), Problem Details uyumlu API istemcisi ve MSW destekli Vitest test paketi (canlı AI/LLM çağrısı içermez)
-- Mimari dokümantasyon ([`docs/architecture.md`](./docs/architecture.md)) ve Mimari Karar Kayıtları ([`docs/adr/`](./docs/adr/README.md))
-- GitHub Actions CI iş akışı ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml))
+Do not migrate or test against an existing personal database. Setup uses a new dedicated
+database; backend tests and Chromium fixtures use disposable migrated databases.
 
----
+## Application modes
 
-## Teknoloji Yığını
+| Mode | Purpose |
+| --- | --- |
+| Vite + ordinary API | PromptRequest UI development; workflow proxy paths deliberately denied |
+| Ordinary API, flags off | PromptRequest APIs and health; workflow routes absent |
+| Workflow API only | Guarded workflow GETs; no create/start routes or execution writer |
+| Qualified local execution | Both flags, exact runtime, dedicated migrated DB and owned listener; built SPA optional |
 
-| Katman | Teknolojiler |
-|---|---|
-| **Frontend** | React 19, Vite 8, TypeScript (`strict`), Tailwind CSS v4 (`@tailwindcss/vite`), React Router, TanStack Query, ESLint, Vitest, MSW |
-| **Backend** | Python 3.12, FastAPI, Pydantic v2, `pydantic-settings`, Uvicorn, `uv`, Ruff, mypy, pytest |
-| **Veritabanı** | SQLite + `aiosqlite` + SQLAlchemy 2.0 Async + Alembic (M3A bağlantı temeli ve M3B ilk 4 ORM modeli + Alembic göç sistemi kuruldu, PostgreSQL uyumlu) |
-| **AI Katmanı (M5A–M5C-2)** | LLMProvider/LLMGateway, fake/OpenAI sağlayıcıları, PromptArchitectAgent, GenericPromptRenderer, bağımsız PromptCriticAgent ve deterministik ScoringEngine; API/workflow aktivasyonu planlandı |
+Only `python -m app.core.execution_startup` can qualify the supported execution owner.
+Ordinary Uvicorn, Vite and Vite preview cannot authorize execution. See the
+[exact mode matrix](docs/local-mvp-operations.md#operating-modes).
 
----
+## Technology and repository
 
-## Planlanan Yapay Zekâ Ajanları
-
-**İlk MVP Çekirdeği (M6 – M8.6):**
-
-1. **Prompt Engineer Agent** (`create` ve `revise` operasyonları)
-2. **Prompt Critic / Evaluator Agent** (bağımsız değerlendirme)
-3. **Deterministik Revizyon İş Akışı (`RevisionWorkflow`)** ve hedefe özgü **Prompt Renderers**
-
-**Uzun Vadeli Platform Vizyonu (Post-MVP / M10+):**
-
-4. Revision Agent (özel revizyon stratejileri)
-5. Master Prompt Architect Agent
-6. Project Manager Agent
-7. System Architect Agent
-8. Frontend Development Agent
-9. Backend Development Agent
-10. Database Architect Agent
-11. QA / Testing Agent
-12. Security Review Agent
-13. Marketing & Market Research Agent
-14. Main Orchestrator Agent
-
----
-
-## Depo Yapısı
+| Layer | Stack |
+| --- | --- |
+| Frontend | React 19, Vite 8, strict TypeScript, Tailwind CSS 4, React Router, TanStack Query |
+| Backend | Python 3.12, FastAPI, Pydantic 2, Uvicorn, uv |
+| Storage | SQLite, aiosqlite, SQLAlchemy 2 async, Alembic |
+| LLM | Existing LLMGateway, fake provider and OpenAI Responses adapter; generic renderer |
+| Checks | pytest, strict mypy, Ruff, ESLint, Vitest/RTL/MSW, real Chromium Playwright |
 
 ```text
-PromptForge-AI/
-├── .github/
-│   ├── workflows/
-│   │   └── ci.yml
-│   └── PULL_REQUEST_TEMPLATE.md
-├── backend/
-│   ├── app/
-│   │   ├── api/
-│   │   │   ├── error_handlers.py
-│   │   │   ├── middleware.py
-│   │   │   └── v1/routes/
-│   │   │       ├── prompt_requests.py
-│   │   │       └── system.py
-│   │   ├── core/
-│   │   │   ├── config.py
-│   │   │   ├── errors.py
-│   │   │   └── logging.py
-│   │   ├── db/
-│   │   │   ├── base.py
-│   │   │   ├── migrations.py
-│   │   │   └── session.py
-│   │   ├── models/
-│   │   │   ├── agent_run.py
-│   │   │   ├── enums.py
-│   │   │   ├── prompt_request.py
-│   │   │   ├── prompt_version.py
-│   │   │   └── workflow_run.py
-│   │   ├── modules/prompts/
-│   │   │   ├── repository.py
-│   │   │   ├── schemas.py
-│   │   │   └── service.py
-│   │   └── main.py
-│   ├── migrations/
-│   │   ├── env.py
-│   │   ├── script.py.mako
-│   │   └── versions/
-│   │       └── 0001_initial_schema.py
-│   ├── tests/
-│   │   ├── conftest.py
-│   │   ├── test_database.py
-│   │   ├── test_error_handlers.py
-│   │   ├── test_health.py
-│   │   ├── test_logging.py
-│   │   ├── test_middleware.py
-│   │   ├── test_migrations.py
-│   │   ├── test_prompt_repository.py
-│   │   └── test_prompt_requests_api.py
-│   ├── .env.example
-│   ├── .python-version
-│   ├── alembic.ini
-│   ├── pyproject.toml
-│   ├── uv.lock
-│   └── README.md
-├── frontend/
-│   ├── public/
-│   ├── src/
-│   │   ├── app/
-│   │   ├── components/
-│   │   ├── config/
-│   │   ├── features/prompt-requests/
-│   │   ├── lib/
-│   │   ├── pages/
-│   │   ├── test/
-│   │   ├── App.tsx
-│   │   ├── index.css
-│   │   └── main.tsx
-│   ├── .env.example
-│   ├── eslint.config.js
-│   ├── index.html
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── vite.config.ts
-│   └── README.md
-├── docs/
-│   ├── architecture.md
-│   └── adr/
-├── .editorconfig
-├── .gitattributes
-├── .gitignore
-└── README.md
+backend/                 API, agents, gateway, persistence, migrations, tests
+frontend/                React UI, component tests, isolated Chromium E2E
+docs/                    Contracts, operator guides, audit and ADRs
+.github/workflows/       Backend, frontend and Chromium CI jobs
 ```
 
----
+Execution qualification requires **Python 3.12.16** and safe SQLite versions observed
+through actual sqlite3 and aiosqlite connections. Package/CLI versions are insufficient.
+This Windows environment observed SQLite 3.53.1 in both drivers; other builds must
+pass independently. See [prerequisites](docs/local-mvp-setup.md#prerequisites).
 
-## Kurulum ve Çalıştırma
+## Architecture and verification
 
-### Ön Koşullar
+- [Current architecture](docs/architecture.md) and [architecture decisions](docs/adr/README.md).
+- [Workflow HTTP contracts](docs/workflow-api-contracts.md), [admission](docs/execution-admission.md),
+  [supervisor](docs/execution-supervisor.md), [readback/recovery](docs/workflow-readback-recovery.md).
+- [Backend](backend/README.md), [frontend](frontend/README.md), [LLM contracts](backend/app/llm/README.md).
+- UI: [foundation](docs/frontend-workflow-integration.md), [creation](docs/frontend-workflow-creation.md),
+  [progress](docs/frontend-workflow-progress.md), [results/history](docs/frontend-workflow-results.md).
+- [M5F-5A security audit](docs/m5f-security-regression-audit.md), including SQL parameter
+  hiding and the P1 remount/cache revocation correction.
 
-- **Python 3.12** ve **[uv](https://docs.astral.sh/uv/)**
-- **Node.js 22.12+** (geliştirme ortamı: Node.js 24.11.1) ve **npm**
+The [setup guide](docs/local-mvp-setup.md#automated-checks) gives current check commands.
+Backend typing includes migrations and benchmarks. Vitest discovers only
+`src/**/*.test.{ts,tsx}`; Playwright uses `e2e/**/*.spec.ts`, one worker and zero retries.
+Test counts are dated observations in the release checklist, not permanent guarantees.
 
-### Backend Kurulumu ve Çalıştırma
+[CI foundation and Linux qualification](docs/ci-qualification.md) describes the four
+prepared checks, tool pins, artifact privacy and pending Linux/remote evidence.
+Workflow configuration alone is not a successful GitHub Actions run.
 
-```powershell
-cd backend
+## Boundaries and roadmap
 
-# Sanal ortamı (.venv) oluştur ve bağımlılıkları kur
-uv sync --python 3.12
+Use one trusted local process; there is no waiting queue. Public binds, proxies,
+containers and tunnels are unsupported. Same-origin/peer checks and listener ownership
+are not authentication or HTTP flood protection. Unknown starts and unresolved paid
+operations must not be automatically replayed. Exactly-once remote billing is not guaranteed.
 
-# Yalnızca yapılandırılan veritabanı hedefini kontrol ettikten sonra şemayı hazırla:
-uv run alembic upgrade head
-
-# Geliştirme sunucusunu başlat (http://127.0.0.1:8000)
-uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
-```
-
-- Sağlık kontrolü: `http://127.0.0.1:8000/api/v1/health`
-- Swagger UI (OpenAPI): `http://127.0.0.1:8000/docs`
-
-**Backend göç (migration) ve doğrulama komutları:**
-
-```powershell
-cd backend
-uv run alembic upgrade head
-uv run alembic downgrade -1
-uv run pytest -q
-uv run pytest tests/test_database.py -q
-uv run pytest tests/test_migrations.py -q
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy .
-```
-
-### Frontend Kurulumu ve Çalıştırma
-
-Yerel geliştirmede Vite sunucusu `/api` isteklerini `http://127.0.0.1:8000` adresindeki FastAPI servisine proxy üzerinden iletir (ayrıntılar ve üretim dağıtım notları için bkz. [`frontend/README.md`](./frontend/README.md)):
-
-```powershell
-cd frontend
-
-# Bağımlılıkları kur
-npm install
-
-# Geliştirme sunucusunu başlat (http://127.0.0.1:5173)
-npm run dev
-```
-
-**Frontend doğrulama komutları:**
-
-```powershell
-cd frontend
-npm run lint
-npm run typecheck
-npm test
-npm run build
-```
-
----
-
-## Geliştirme Yol Haritası
-
-| Aşama | Başlık | Durum |
-|---|---|---|
-| **Milestone 1** | Mimari analiz ve teknik planlama | Tamamlandı |
-| **Milestone 2A** | Monorepo, backend/frontend temeli, test/lint/CI ve mimari dokümantasyon | Tamamlandı |
-| **Milestone 3A** | `pydantic-settings` yapılandırması, SQLite + SQLAlchemy 2.0 Async motoru ve oturum yönetimi | Tamamlandı |
-| **Milestone 3B** | İlk dört ORM modeli (`prompt_requests`, `workflow_runs`, `prompt_versions`, `agent_runs`) ve Alembic göç altyapısı | Tamamlandı |
-| **Milestone 3C** | Prompt yönetimi API uç noktaları, yapılandırılmış JSON loglama, `X-Request-ID` ve RFC 9457 Problem Details hata yönetimi | Tamamlandı |
-| **Milestone 4A** | React Router, TanStack Query, Problem Details uyumlu API istemcisi, Türkçe prompt gönderim formu ve detay sayfası | Tamamlandı |
-| **Milestone 4B-1** | Kaydedilen prompt istekleri için sunucu taraflı sayfalamalı geçmiş arayüzü (`/history`), URL `?page=` durumu ve gezinme | Tamamlandı |
-| **Milestone 4B-2** | Prompt geçmişi için sunucu taraflı anahtar kelime araması (`q`), hedef yapay zekâ filtreleme (`target_mode`) ve URL durum senkronizasyonu | **Tamamlandı** |
-| **Milestone 5** | Sağlayıcıdan bağımsız LLM katmanı, `FakeLLMProvider` ve ilk sağlayıcı entegrasyonu | M5A'da uygulandı |
-| **Milestone 6** | `PromptArchitectAgent.create/revise`, sparse `CanonicalPrompt` ve `GenericPromptRenderer` | M5B/M5D-2'de uygulandı; seçim/workflow planlandı |
-| **Milestone 7** | Bağımsız `PromptCriticAgent` ve deterministik puanlama motoru, rubric 2.0.0 | M5C-2'de bellek içi uygulandı; değerlendirme kalıcılığı planlandı |
-| **Milestone 8** | En fazla 3 değerlendirme turlu otomatik revizyon iş akışı | Planlandı |
-| **Milestone 8.5** | Hedefe özgü derleyiciler (`openai`, `anthropic`, `google`), hedef seçici ve hedef farkındalıklı değerlendirme | Planlandı |
-| **Milestone 8.6** | Prompt detay seviyesi, yanıt detayı, akıl yürütme tercihleri ve görev bazlı politikalar | Planlandı |
-| **Milestone 9** | Uçtan uca testler, değerlendirme kalibrasyonu ve ilk MVP sürümü (`v0.1.0`) | Planlandı |
-| **Milestone 10+** | Sesli girdi (Speech-to-Text), ek LLM sağlayıcıları, token analizi motoru, doğrudan reasoning API kontrolleri, projeler/auth ve ek uzman ajanlar | Planlandı |
+Target-family preferences are stored and passed to the Architect, but only the generic
+renderer and OpenAI real-provider adapter are implemented. Target-specific renderers,
+additional providers, REA/multimodal analysis, voice, token analytics, direct reasoning
+API controls, SSE, authentication and multi-worker operation remain future work.
+Current application/package version metadata is `0.0.1`; M5F-5B creates no release tag.
