@@ -101,6 +101,9 @@ jobs:
   e2e:
     name: E2E (Chromium · isolated FastAPI + SQLite)
     runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
+      options: --init --user 1001 --shm-size=1g
     timeout-minutes: 20
     defaults:
       run:
@@ -134,8 +137,6 @@ jobs:
           echo "PROMPTFORGE_E2E_PYTHON=$GITHUB_WORKSPACE/backend/.venv/bin/python" >> "$GITHUB_ENV"
       - name: Install frozen frontend dependencies
         run: npm ci
-      - name: Install locked Chromium and Linux system dependencies
-        run: npx --no-install playwright install --with-deps chromium
       - name: Qualify Linux, connected SQLite and disposable WAL capabilities
         working-directory: backend
         run: .venv/bin/python ../scripts/verify_ci_linux_runtime.py
