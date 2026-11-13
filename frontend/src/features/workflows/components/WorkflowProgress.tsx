@@ -2,6 +2,7 @@ import { useId, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router'
 import { ErrorAlert } from '../../../components/common/ErrorAlert'
+import type { FollowupSource } from '../clarificationFollowup'
 import { isTerminal, trustedSelection } from '../contracts'
 import { WorkflowClientError } from '../errors'
 import { workflowMetadataQuery, workflowMonitoringQuery } from '../queries'
@@ -13,7 +14,9 @@ const control = 'inline-flex min-h-11 items-center justify-center rounded-xl bor
 const operationNames = { create: 'Architect · Hazırlama', revise: 'Architect · İyileştirme', evaluate: 'Critic · Değerlendirme' } as const
 const operationStates = { PENDING: 'Kayıt bekliyor', RUNNING: 'Tamamlanması henüz doğrulanmadı', COMPLETED: 'Tamamlandı', FAILED: 'Başarısız' } as const
 
-export function WorkflowProgress({ workflowId, parentId }: { readonly workflowId: string; readonly parentId: string }) {
+export function WorkflowProgress({ workflowId, parentId, source, defaultSelected = false }: {
+  readonly workflowId: string; readonly parentId: string; readonly source?: FollowupSource; readonly defaultSelected?: boolean
+}) {
   const { ref, visible } = useProgressVisibility()
   const [paused, setPaused] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -86,7 +89,8 @@ export function WorkflowProgress({ workflowId, parentId }: { readonly workflowId
         else next.set('view', 'result')
         setSearch(next, { replace: true })
       }}>{resultsOpen ? 'Sonuç ve Geçmişi Kapat' : 'Sonuç ve Geçmişi Görüntüle'}</button>
-      {resultsOpen ? <WorkflowResults workflowId={workflowId} parentId={parentId} progress={row}
+      {resultsOpen ? <WorkflowResults workflowId={workflowId} parentId={parentId} progress={row} source={source}
+        defaultSelected={defaultSelected} progressChecking={query.isFetching}
         unverified={Boolean(error) || Boolean(row && !trusted)} /> : null}
     </section>
   )

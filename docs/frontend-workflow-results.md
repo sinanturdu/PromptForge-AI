@@ -220,3 +220,6 @@ These tests establish contracts and UI behavior, not real-model quality or exact
 provider billing. General deployment, recovery execution, clarification editing,
 semantic/inline diffing, canonical editing and unevaluated version content remain out
 of scope. No paid LLM calls are used.
+
+M6-3B adds a [clarification follow-up draft](frontend-clarification-followup.md)
+for eligible historical results. Saving the draft creates a separate prompt request.

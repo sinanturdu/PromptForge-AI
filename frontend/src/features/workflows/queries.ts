@@ -1,11 +1,15 @@
 import { mutationOptions, queryOptions, type QueryClient } from '@tanstack/react-query'
+import { promptRequestKeys } from '../prompt-requests/hooks'
+import type { PromptRequestRecord } from '../prompt-requests/types'
 import * as api from './api'
+import { checkedSource, clarificationContentConflicts, sameQuestions, validClarificationCount, validClarificationQuestions } from './clarificationFollowup'
 import { isTerminal, type WorkflowContentHistory, type WorkflowCreateRequest, type WorkflowListParams, type WorkflowMetadataHistory,
   type WorkflowProgress, type WorkflowResult, type WorkflowStartRequest } from './contracts'
 import { WorkflowClientError } from './errors'
 import { workflowRead } from './readDeadline'
-import { contentConflicts, reconcileResult, trustworthyMetadata } from './readValidation'
-import { isWorkflowIntegrityError, revokeResultIntegrity } from './resultIntegrity'
+import { trustworthyProgress } from './progress'
+import { contentConflicts, historiesConflict, reconcileResult, sameId, trustworthyMetadata } from './readValidation'
+import { blockClarificationFollowup, isWorkflowIntegrityError, observeWorkflowRevision, revokeResultIntegrity } from './resultIntegrity'
 
 export const workflowKeys = {
   all: ['workflows'] as const,
@@ -17,6 +21,12 @@ export const workflowKeys = {
   metadata: (id: string, parentId?: string) => ['workflows', 'run', id, 'metadata', parentId ?? null] as const,
   content: (id: string, parentId?: string) => ['workflows', 'run', id, 'content', parentId ?? null] as const,
   result: (id: string, parentId?: string) => ['workflows', 'run', id, 'result', parentId ?? null] as const,
+}
+
+function savedSource(client: QueryClient, parentId: string) {
+  for (const [key, record] of client.getQueriesData<PromptRequestRecord>({ queryKey: promptRequestKeys.details() })) {
+    if (record && typeof key[2] === 'string' && sameId(key[2], parentId)) return checkedSource({ record, queryId: key[2] }, parentId)
+  }
 }
 
 async function readWithIntegrity<T>(client: QueryClient, id: string, parentId: string | undefined,
@@ -35,7 +45,13 @@ const readDefaults = { retry: false, refetchInterval: false, refetchOnWindowFocu
   refetchIntervalInBackground: false, gcTime: 0 } as const
 export const workflowProgressQuery = (id: string, parentId?: string) => queryOptions({
   ...readDefaults, queryKey: workflowKeys.progress(id, parentId),
-  queryFn: ({ signal }) => workflowRead(signal, bounded => api.getWorkflowProgress(id, bounded, parentId)),
+  queryFn: ({ client, signal }) => workflowRead(signal, async bounded => {
+    const row = await api.getWorkflowProgress(id, bounded, parentId)
+    if (parentId && !bounded.aborted && trustworthyProgress(row) && validClarificationCount(row)) {
+      observeWorkflowRevision(client, id, parentId, row.state_revision)
+    }
+    return row
+  }),
 })
 export const workflowMonitoringQuery = (id: string, parentId: string, enabled: boolean) => queryOptions({
   ...workflowProgressQuery(id, parentId), enabled: query => enabled && query.state.status !== 'error', staleTime: 2000,
@@ -47,7 +63,17 @@ export const workflowMonitoringQuery = (id: string, parentId: string, enabled: b
 })
 export const workflowMetadataQuery = (id: string, parentId?: string) => queryOptions({
   ...readDefaults, queryKey: workflowKeys.metadata(id, parentId),
-  queryFn: ({ signal }) => workflowRead(signal, bounded => api.getWorkflowMetadataHistory(id, bounded, parentId)),
+  queryFn: ({ client, signal }) => workflowRead(signal, async bounded => {
+    const summary = await api.getWorkflowMetadataHistory(id, bounded, parentId)
+    const result = client.getQueryData<WorkflowResult>(workflowKeys.result(id, parentId))
+    const content = client.getQueryData<WorkflowContentHistory>(workflowKeys.content(id, parentId))
+    if (parentId && !bounded.aborted && trustworthyMetadata(summary) && validClarificationCount(summary.workflow) &&
+      !(result && reconcileResult(result, summary) === 'conflict') &&
+      !(content && trustworthyMetadata(content.metadata) && historiesConflict(content.metadata, summary))) {
+      observeWorkflowRevision(client, id, parentId, summary.workflow.state_revision)
+    }
+    return summary
+  }),
 })
 export const workflowContentQuery = (id: string, parentId?: string) => queryOptions({
   ...readDefaults, staleTime: Infinity, refetchOnMount: false, refetchOnReconnect: false,
@@ -58,6 +84,22 @@ export const workflowContentQuery = (id: string, parentId?: string) => queryOpti
     const result = client.getQueryData<WorkflowResult>(workflowKeys.result(id, parentId))
     if (trustworthyMetadata(content.metadata) && contentConflicts(content, summary, result)) {
       throw new WorkflowClientError('malformed_response', 200, 'workflow_integrity_inconsistent')
+    }
+    if (parentId && !bounded.aborted && trustworthyMetadata(content.metadata)) {
+      const row = content.metadata.workflow
+      if (row.status === 'CLARIFICATION_REQUIRED') {
+        const saved = savedSource(client, parentId)
+        if (!validClarificationQuestions(row, content.clarification_questions) ||
+          (saved && clarificationContentConflicts(saved, result, content)) ||
+          (result?.workflow.state_revision === row.state_revision &&
+           !sameQuestions(result.clarification_questions, content.clarification_questions))) {
+          blockClarificationFollowup(client, id, parentId)
+          return content
+        }
+      }
+      if (validClarificationCount(row) && (row.status === 'CLARIFICATION_REQUIRED' || content.clarification_questions.length === 0)) {
+        observeWorkflowRevision(client, id, parentId, row.state_revision)
+      }
     }
     return content
   }),
@@ -72,6 +114,18 @@ export const workflowResultQuery = (id: string, parentId?: string) => queryOptio
     if ((summary && trustworthyMetadata(summary) && reconcileResult(result, summary) === 'conflict') ||
       (content && trustworthyMetadata(content.metadata) && contentConflicts(content, undefined, result))) {
       throw new WorkflowClientError('malformed_response', 200, 'workflow_integrity_inconsistent')
+    }
+    if (parentId && !bounded.aborted && content && result.workflow.status === 'CLARIFICATION_REQUIRED' &&
+      content.metadata.workflow.state_revision === result.workflow.state_revision &&
+      !sameQuestions(result.clarification_questions, content.clarification_questions)) {
+      blockClarificationFollowup(client, id, parentId)
+      return result
+    }
+    const valid = result.workflow.status === 'CLARIFICATION_REQUIRED'
+      ? validClarificationQuestions(result.workflow, result.clarification_questions)
+      : result.workflow.clarification_question_count === 0 && result.clarification_questions.length === 0
+    if (parentId && !bounded.aborted && valid) {
+      observeWorkflowRevision(client, id, parentId, result.workflow.state_revision)
     }
     return result
   }),

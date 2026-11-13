@@ -108,7 +108,7 @@ export const criticOutput = object({
     severity: nullable(choice('critical', 'major', 'minor')), description: text, recommendation: text,
     evidence: array(evidence) })), summary: text,
 })
-const sourceRequest: Parser<PromptRequestRecord> = object({ id: uuid, raw_prompt: text, user_context: nullable(text), output_language: nullable(text),
+export const sourceRequest: Parser<PromptRequestRecord> = object({ id: uuid, raw_prompt: text, user_context: nullable(text), output_language: nullable(text),
   target_mode: choice('generic', 'openai', 'anthropic', 'google'), task_profile: nullable(text),
   prompt_detail_level: choice('low', 'medium', 'high'), response_detail_preference: choice('minimal', 'balanced', 'comprehensive'),
   reasoning_preference: choice('auto', 'low', 'medium', 'high'), created_at: timestamp })

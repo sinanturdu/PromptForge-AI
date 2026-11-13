@@ -10,10 +10,12 @@ import {
 
 export async function createPromptRequest(
   payload: PromptRequestCreatePayload,
+  sameOrigin = false,
 ): Promise<PromptRequestRecord> {
   return apiRequest<PromptRequestRecord>('/prompt-requests', {
     method: 'POST',
     jsonBody: payload,
+    sameOrigin,
   })
 }
 

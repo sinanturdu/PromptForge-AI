@@ -1,12 +1,18 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { WorkflowMetadataHistory, WorkflowProgress, WorkflowResult } from '../contracts'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { hashKey, useQuery, useQueryClient } from '@tanstack/react-query'
+import { promptRequestKeys } from '../../prompt-requests/hooks'
+import type { PromptRequestRecord } from '../../prompt-requests/types'
+import { boundQuestions, checkedSource, clarificationContentConflicts, sameQuestions, sameSource, type FollowupSource } from '../clarificationFollowup'
+import type { WorkflowContentHistory, WorkflowMetadataHistory, WorkflowProgress, WorkflowResult } from '../contracts'
 import { isTerminal } from '../contracts'
+import { WorkflowClientError } from '../errors'
 import { workflowKeys, workflowMetadataQuery, workflowResultQuery } from '../queries'
 import { trustworthyProgress, workflowStatusLabels } from '../progress'
 import { reconcileResult, trustworthyMetadata, versionForEvaluation } from '../readValidation'
-import { confirmResultIntegrity, isWorkflowIntegrityError, readResultIntegrity, revokeResultIntegrity, useResultIntegrity } from '../resultIntegrity'
+import { blockClarificationFollowup, confirmResultIntegrity, isWorkflowIntegrityError, readResultIntegrity, revokeResultIntegrity, useResultIntegrity } from '../resultIntegrity'
+import { useFollowupRoute } from '../useFollowupRoute'
 import { CopyPromptButton } from './CopyPromptButton'
+import { ClarificationFollowup } from './ClarificationFollowup'
 import { EvaluationPanel } from './EvaluationPanel'
 import { qualityLabels } from '../evaluationLabels'
 import { RendererIdentity } from './RendererIdentity'
@@ -14,16 +20,24 @@ import { WorkflowHistoryContent } from './WorkflowHistoryContent'
 import { WorkflowReadError } from './WorkflowReadError'
 import { promptText, readButton } from './resultStyles'
 
-export function WorkflowResults({ workflowId, parentId, progress, unverified }: {
+const invalidContentRead = (error: unknown) => error instanceof WorkflowClientError &&
+  (error.kind === 'malformed_response' || isWorkflowIntegrityError(error))
+
+export function WorkflowResults({ workflowId, parentId, progress, unverified, source, progressChecking, defaultSelected = false }: {
   readonly workflowId: string; readonly parentId: string; readonly progress: WorkflowProgress | undefined
   readonly unverified: boolean
+  readonly source?: FollowupSource
+  readonly progressChecking?: boolean
+  readonly defaultSelected?: boolean
 }) {
   const id = useId()
+  const { isCurrent: routeIsCurrent, entryKey } = useFollowupRoute(parentId, workflowId, defaultSelected)
   const client = useQueryClient()
   const [contentOpen, setContentOpen] = useState(false)
   const integrity = useResultIntegrity(workflowId, parentId)
   const integrityRevoked = integrity.revoked
   const reportIntegrityFailure = useCallback(() => revokeResultIntegrity(client, workflowId, parentId), [client, workflowId, parentId])
+  const blockFollowup = useCallback(() => blockClarificationFollowup(client, workflowId, parentId), [client, workflowId, parentId])
   const metadata = useQuery({ ...workflowMetadataQuery(workflowId, parentId), staleTime: Infinity,
     refetchOnMount: false, refetchOnReconnect: false, networkMode: 'always' })
   const metadataBlocked = unverified || Boolean(progress && !trustworthyProgress(progress)) || metadata.isError ||
@@ -60,6 +74,48 @@ export function WorkflowResults({ workflowId, parentId, progress, unverified }: 
   const data = contentBlocked ? undefined : verifiedResult
   const best = data?.workflow.status === 'COMPLETED' ? data.candidate : null
   const selected = data?.workflow.selected
+  const contentHash = hashKey(workflowKeys.content(workflowId, parentId))
+  const subscribeContent = useCallback((notify: () => void) => client.getQueryCache().subscribe(event => {
+    if ((event.type === 'updated' || event.type === 'removed') && event.query.queryHash === contentHash) notify()
+  }), [client, contentHash])
+  const readContent = useCallback(() => client.getQueryState<WorkflowContentHistory>(workflowKeys.content(workflowId, parentId)),
+    [client, workflowId, parentId])
+  const content = useSyncExternalStore(subscribeContent, readContent, readContent)
+  const original = result.data?.workflow.status === 'CLARIFICATION_REQUIRED' ? checkedSource(source, parentId) : undefined
+  const clarificationConflict = Boolean(original && (invalidContentRead(content?.error) ||
+    (content?.data && clarificationContentConflicts(original, result.data, content.data))))
+  useLayoutEffect(() => {
+    if (clarificationConflict && !integrity.clarificationBlocked) blockFollowup()
+  }, [clarificationConflict, integrity.clarificationBlocked, blockFollowup])
+  // Keep the editor mounted during revalidation of the same snapshot, with both
+  // actions paused. Confirmed contradictions withdraw it entirely.
+  const floor = integrity.observedRevision ?? 0
+  const clarificationStale = Boolean(original && result.data && summary &&
+    Math.min(result.data.workflow.state_revision, summary.workflow.state_revision) < floor)
+  const questions = !contentBlocked && !clarificationConflict && !integrity.clarificationBlocked && !result.isError && !clarificationStale
+    ? boundQuestions(workflowId, parentId, original, progress, result.data, summary, content?.data) : undefined
+  const checking = Boolean(source?.checking || progressChecking || result.isFetching || metadata.isFetching ||
+    content?.fetchStatus === 'fetching')
+
+  function canSaveFollowup() {
+    const currentIntegrity = readResultIntegrity(client, workflowId, parentId)
+    if (!routeIsCurrent() || !source || !original || !questions || currentIntegrity.revoked || currentIntegrity.clarificationBlocked) return false
+    const saved = client.getQueryState<PromptRequestRecord>(promptRequestKeys.detail(source.queryId))
+    const run = client.getQueryState<WorkflowProgress>(workflowKeys.progress(workflowId, parentId))
+    const latestResult = client.getQueryState<WorkflowResult>(workflowKeys.result(workflowId, parentId))
+    const latestSummary = client.getQueryState<WorkflowMetadataHistory>(workflowKeys.metadata(workflowId, parentId))
+    const latestContent = readContent()
+    if ([saved, run, latestResult, latestSummary].some(read => read?.status !== 'success' || read.fetchStatus !== 'idle') ||
+      (latestContent && (latestContent.fetchStatus !== 'idle' || invalidContentRead(latestContent.error)))) return false
+    const latestSource = saved?.data && checkedSource({ record: saved.data, queryId: source.queryId }, parentId)
+    if (!latestSource || !sameSource(original, latestSource) ||
+      latestResult?.data?.workflow.state_revision !== result.data?.workflow.state_revision ||
+      Math.min(latestResult?.data?.workflow.state_revision ?? -1, latestSummary?.data?.workflow.state_revision ?? -1) <
+        (currentIntegrity.observedRevision ?? 0)) return false
+    const latestQuestions = boundQuestions(workflowId, parentId, latestSource, run?.data, latestResult?.data, latestSummary?.data, latestContent?.data)
+    return Boolean(latestQuestions && sameQuestions(questions, latestQuestions))
+  }
+
   async function refreshResult() {
     const key = workflowKeys.result(workflowId, parentId)
     const observed = readResultIntegrity(client, workflowId, parentId)
@@ -78,13 +134,19 @@ export function WorkflowResults({ workflowId, parentId, progress, unverified }: 
       read.data.workflow.state_revision >= (before?.data?.workflow.state_revision ?? 0) &&
       read.data.workflow.status === latestProgress.data.status &&
       (client.getQueryState(key)?.dataUpdateCount ?? 0) > (before?.dataUpdateCount ?? 0) &&
-      readResultIntegrity(client, workflowId, parentId) === observed) {
+      readResultIntegrity(client, workflowId, parentId).revision === observed.revision &&
+      readResultIntegrity(client, workflowId, parentId).clarificationBlocked === observed.clarificationBlocked) {
       // A previous rejected content snapshot is neither new evidence nor a fresh
       // history request. Close it and evict it before restoring result approval.
       setContentOpen(false)
       client.removeQueries({ queryKey: workflowKeys.content(workflowId, parentId), exact: true })
       confirmResultIntegrity(client, workflowId, parentId, observed)
     }
+  }
+
+  async function refreshClarification() {
+    const history = await refreshMetadata({ cancelRefetch: false })
+    if (routeIsCurrent() && history.isSuccess) await refreshResult()
   }
 
   return <section id="workflow-results" aria-labelledby={`${id}-heading`} className="min-w-0 scroll-mt-24 space-y-5 border-t border-slate-700 pt-6">
@@ -102,6 +164,10 @@ export function WorkflowResults({ workflowId, parentId, progress, unverified }: 
     {displayBlocked && !integrityError ? <p role="alert" className="rounded-xl border border-amber-500/40 bg-amber-950/20 p-4 text-sm text-amber-200">Sonucun bütünlüğü veya güncel okuması doğrulanamıyor. Prompt gösterimi ve kopyalama kapalı; kayıtlı metadata inceleme için korunur. Güvenli okumaları yenileyebilirsin.</p> : null}
     {awaitingReconciliation && !displayBlocked ? <p role="status" className="text-sm text-amber-200">Geçmiş özeti sonuçtan daha güncel. Sonucu Yenile ile güncel sonucu doğrula.</p> : null}
     {integrityRevoked ? <p className="text-sm text-amber-200">Sonuç veya geçmiş okuması bir bütünlük sorunu bildirdi. Sonucu Yenile ile yeniden doğrulanana kadar önceki prompt kullanılamaz.</p> : null}
+    {clarificationStale && !displayBlocked ? <div className="space-y-2">
+      <p role="status" className="text-sm text-amber-200">Daha güncel bir workflow kaydı görüldü. Taslak hazırlamak için açıklama kayıtlarını yenileyin.</p>
+      <button type="button" className={readButton} disabled={checking} onClick={() => { void refreshClarification() }}>Açıklama Kayıtlarını Yenile</button>
+    </div> : null}
     <WorkflowReadError title="Sonuç okunamadı" error={result.error} />
     {terminal && !blocked && (result.isFetching || !metadata.data) ? <p role="status" className="text-sm text-slate-400">Doğrulanmış sonuç okunuyor...</p> : null}
     {data ? <>
@@ -112,10 +178,6 @@ export function WorkflowResults({ workflowId, parentId, progress, unverified }: 
         {data.workflow.status === 'COMPLETED' && selected?.quality_status !== 'qualified' ? <p className="text-sm text-amber-200">Bu sonuç kalite koşullarını sağlamış olarak sunulmuyor. Bütünlüğü doğrulanan metni kullanmadan önce değerlendirmeyi incele.</p> : null}
         {data.workflow.status !== 'COMPLETED' ? <p className="text-sm text-slate-400">Yeni yürütme veya otomatik kurtarma yapılmaz. Varsa önceki adayları geçmiş içeriğinden inceleyebilirsin.</p> : null}
       </div>
-      {data.workflow.status === 'CLARIFICATION_REQUIRED' ? data.clarification_questions.length ? <section aria-label="Gerekli açıklamalar" className="space-y-2 text-sm text-slate-300">
-        <h4 className="font-semibold">Kayıtlı Açıklama Soruları</h4><ul className="list-inside list-disc space-y-2 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{data.clarification_questions.map((question, index) => <li key={index}>{question}</li>)}</ul>
-        <p className="text-xs text-slate-400">Bu ekranda yanıt düzenleme veya yeniden başlatma bulunmuyor.</p>
-      </section> : <p className="text-sm text-slate-400">API açıklama sorusu içeriği sağlamadı.</p> : null}
       {best ? <section aria-label="Seçilen prompt" className="min-w-0 space-y-4">
         <div className="space-y-1"><h4 className="font-semibold text-slate-100">Seçilen En İyi Prompt</h4>
           <p className="text-xs text-slate-400">Sürüm {best.version.version_number} · Değerlendirme turu {best.version.evaluation_round ?? 'bilinmiyor'} · {best.version.id}</p>
@@ -131,6 +193,15 @@ export function WorkflowResults({ workflowId, parentId, progress, unverified }: 
       </section> : data.workflow.status === 'COMPLETED' ? <p className="text-sm text-slate-400">API seçilmiş bir prompt sağlamadı. Kopyalanabilecek doğrulanmış metin yok.</p> : null}
       {data.workflow.status === 'COMPLETED' && data.workflow.completed_rounds < data.workflow.max_evaluation_rounds ? <p className="text-xs text-slate-400">Workflow yapılandırılan üst sınıra ulaşmadan sonlandı. Sonraki turların çalıştığı varsayılmaz.</p> : null}
     </> : null}
+    {original && questions ? <div aria-label="Gerekli açıklamalar" role="region">
+      <ClarificationFollowup key={`${parentId}:${workflowId}:${result.data?.workflow.state_revision}:${entryKey}`}
+        source={original} questions={questions} checking={checking} canSave={canSaveFollowup} onBindingChange={blockFollowup} />
+    </div> : data?.workflow.status === 'CLARIFICATION_REQUIRED' ? data.clarification_questions.length
+      ? <section aria-label="Gerekli açıklamalar" className="space-y-2 text-sm text-slate-300">
+        <h4 className="font-semibold">Kayıtlı Açıklama Soruları</h4>
+        <ol className="list-inside list-decimal space-y-2 whitespace-pre-wrap [overflow-wrap:anywhere]">{data.clarification_questions.map((question, index) => <li key={index}>{question}</li>)}</ol>
+        <p className="text-xs text-slate-400">Kayıtlar doğrulanamadığı için bu sorulardan yeni istek taslağı hazırlanamaz.</p>
+      </section> : <p className="text-sm text-slate-400">API açıklama sorusu içeriği sağlamadı.</p> : null}
     <section aria-label="Değerlendirme metadata geçmişi" className="min-w-0 space-y-4 border-t border-slate-800 pt-5">
       <div className="flex flex-wrap items-center justify-between gap-3"><h4 className="font-semibold text-slate-100">Değerlendirme Geçmişi</h4>
         <button type="button" className={readButton} disabled={metadata.isFetching} onClick={() => { void metadata.refetch({ cancelRefetch: false }) }}>Geçmiş Özetini Yenile</button></div>

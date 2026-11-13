@@ -2,6 +2,7 @@ import { useId, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { ROUTES } from '../../../app/routes'
 import { ErrorAlert } from '../../../components/common/ErrorAlert'
+import type { FollowupSource } from '../clarificationFollowup'
 import { useOptimization } from '../useOptimization'
 import { WorkflowMonitor } from './WorkflowMonitor'
 
@@ -9,7 +10,9 @@ const button = 'inline-flex min-h-11 items-center justify-center rounded-xl px-4
 const primary = `${button} bg-indigo-600 text-white hover:bg-indigo-500`
 const secondary = `${button} border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800`
 
-export function OptimizationPanel({ promptRequestId }: { readonly promptRequestId: string }) {
+export function OptimizationPanel({ promptRequestId, source }: {
+  readonly promptRequestId: string; readonly source?: FollowupSource
+}) {
   const [search, setSearch] = useSearchParams()
   function monitor(workflowId: string) {
     const next = new URLSearchParams(search)
@@ -96,7 +99,7 @@ export function OptimizationPanel({ promptRequestId }: { readonly promptRequestI
         {ui.error && !ui.storageBlocked ? <ErrorAlert {...ui.error} /> : null}
       </div> : null}
     </section>
-    <WorkflowMonitor parentId={promptRequestId} defaultWorkflowId={workflowId}
+    <WorkflowMonitor parentId={promptRequestId} defaultWorkflowId={workflowId} source={source}
       followDefault={ui.action !== 'start' && (ui.attempt?.start === 'accepted' || ui.attempt?.start === 'unknown')} />
   </>)
 }

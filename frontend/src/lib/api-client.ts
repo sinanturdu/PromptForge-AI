@@ -224,14 +224,19 @@ export interface ApiRequestOptions {
   readonly jsonBody?: unknown
   readonly signal?: AbortSignal
   readonly headers?: Readonly<Record<string, string>>
+  readonly sameOrigin?: boolean
 }
 
 export async function apiRequest<TResponse>(
   path: string,
   options: ApiRequestOptions = {},
 ): Promise<TResponse> {
-  const url = buildApiV1Url(path)
+  const url = options.sameOrigin ? buildApiV1Url(path, '') : buildApiV1Url(path)
   const method = options.method ?? 'GET'
+  if (options.sameOrigin && new URL(url, document.baseURI).origin !== window.location.origin) {
+    throw new ApiClientError({ status: 400, errorCode: 'invalid_request_origin',
+      userMessage: 'Kayıt için aynı uygulama adresi kullanılmalıdır.' })
+  }
 
   const requestHeaders: Record<string, string> = {
     Accept: 'application/json, application/problem+json',
@@ -245,6 +250,7 @@ export async function apiRequest<TResponse>(
   try {
     response = await fetch(url, {
       method,
+      ...(options.sameOrigin ? { mode: 'same-origin', credentials: 'same-origin', redirect: 'error', cache: 'no-store' } : {}),
       headers: requestHeaders,
       body: options.jsonBody !== undefined ? JSON.stringify(options.jsonBody) : undefined,
       signal: options.signal,

@@ -12,6 +12,8 @@ export function isWorkflowIntegrityError(error: unknown): boolean {
 interface ResultIntegrity {
   readonly revoked: boolean
   readonly revision: number
+  readonly observedRevision?: number
+  readonly clarificationBlocked?: boolean
 }
 const EMPTY: ResultIntegrity = Object.freeze({ revoked: false, revision: 0 })
 
@@ -20,17 +22,32 @@ const EMPTY: ResultIntegrity = Object.freeze({ revoked: false, revision: 0 })
 export function readResultIntegrity(client: QueryClient, workflowId: string, parentId: string): ResultIntegrity {
   return client.getQueryData<ResultIntegrity>(integrityKey(workflowId, parentId)) ?? EMPTY
 }
+export function observeWorkflowRevision(client: QueryClient, workflowId: string, parentId: string, revision: number): void {
+  const previous = readResultIntegrity(client, workflowId, parentId)
+  if (!Number.isSafeInteger(revision) || revision <= (previous.observedRevision ?? 0)) return
+  const key = integrityKey(workflowId, parentId)
+  client.setQueryDefaults(key, { gcTime: Infinity, staleTime: Infinity, enabled: false, queryFn: skipToken })
+  client.setQueryData<ResultIntegrity>(key, { ...previous, observedRevision: revision })
+}
 export function revokeResultIntegrity(client: QueryClient, workflowId: string, parentId: string): void {
   const key = integrityKey(workflowId, parentId)
   client.setQueryDefaults(key, { gcTime: Infinity, staleTime: Infinity, enabled: false, queryFn: skipToken })
-  client.setQueryData<ResultIntegrity>(key, previous => ({ revoked: true, revision: (previous?.revision ?? 0) + 1 }))
+  client.setQueryData<ResultIntegrity>(key, previous => ({ ...previous, revoked: true, revision: (previous?.revision ?? 0) + 1 }))
+}
+// A confirmed source/question contradiction cannot be resolved by a result-only
+// refresh or by closing the view that loaded the contradictory content.
+export function blockClarificationFollowup(client: QueryClient, workflowId: string, parentId: string): void {
+  const key = integrityKey(workflowId, parentId)
+  client.setQueryDefaults(key, { gcTime: Infinity, staleTime: Infinity, enabled: false, queryFn: skipToken })
+  client.setQueryData<ResultIntegrity>(key, previous => ({ ...(previous ?? EMPTY), clarificationBlocked: true }))
 }
 // Called only after the caller confirms a new validated result GET success. A
 // newer integrity observation must also defeat an already-pending revalidation.
 export function confirmResultIntegrity(client: QueryClient, workflowId: string, parentId: string, observed: ResultIntegrity): void {
-  if (readResultIntegrity(client, workflowId, parentId) !== observed) return
+  const current = readResultIntegrity(client, workflowId, parentId)
+  if (!current.revoked || current.revision !== observed.revision || current.clarificationBlocked !== observed.clarificationBlocked) return
   client.setQueryData<ResultIntegrity>(integrityKey(workflowId, parentId), {
-    revoked: false, revision: observed.revision,
+    ...current, revoked: false,
   })
 }
 export function useResultIntegrity(workflowId: string, parentId: string): ResultIntegrity {
