@@ -39,7 +39,8 @@ async function request<T>(path: string, parse: (body: unknown) => T, statuses: r
   try {
     if (!statuses.includes(response.status)) throw new Error()
     return parse(data)
-  } catch {
+  } catch (error) {
+    if (error instanceof WorkflowClientError) throw error
     throw new WorkflowClientError('malformed_response', response.status)
   }
 }

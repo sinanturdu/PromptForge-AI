@@ -240,7 +240,7 @@ export function PromptSubmitForm() {
       <fieldset disabled={isSubmitting} className="space-y-2.5">
         <legend className="text-sm font-medium text-slate-100">Hedef Yapay Zekâ Ailesi</legend>
         <p className="text-xs text-slate-400">
-          Promptunu kullanmayı planladığın yapay zekâ ailesini seç. Bu seçim bir AI çağrısı başlatmaz.
+          Promptu kullanacağın yapay zekâ ailesini seç. Bu tercih sağlayıcı seçmez ve bir çağrı başlatmaz.
         </p>
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
           {TARGET_AI_FAMILY_OPTIONS.map((option) => {
@@ -258,12 +258,14 @@ export function PromptSubmitForm() {
                   type="radio"
                   name="target_mode"
                   value={option.value}
+                  aria-labelledby={`target-mode-${option.value}-name`}
+                  aria-describedby={`target-mode-${option.value}-description`}
                   checked={isSelected}
                   onChange={() => updateField('targetMode', option.value as TargetMode)}
                   className="sr-only"
                 />
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-semibold text-slate-100">{option.label}</span>
+                  <span id={`target-mode-${option.value}-name`} className="text-sm font-semibold text-slate-100">{option.label}</span>
                   <span
                     className={`rounded px-1.5 py-0.5 font-mono text-[11px] ${
                       isSelected
@@ -274,7 +276,7 @@ export function PromptSubmitForm() {
                     {option.badge}
                   </span>
                 </div>
-                <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
+                <p id={`target-mode-${option.value}-description`} className="mt-1.5 text-xs leading-relaxed text-slate-400">
                   {option.description}
                 </p>
               </label>

@@ -30,7 +30,10 @@ function retainResult(client: ReturnType<typeof createTestQueryClient>, id = RUN
   const observer = new QueryObserver(client, { ...workflowResultQuery(id, PARENT), enabled: false, gcTime: Infinity })
   retainedObservers.push(observer.subscribe(() => {}))
 }
-function inconsistentHistory(failure: 'findings' | 'http_integrity') {
+function inconsistentHistory(failure: 'findings' | 'http_integrity' | 'renderer') {
+  if (failure === 'renderer') return json({ ...fixture.history, versions: fixture.history.versions.map(value => ({
+    ...value, version: { ...value.version, renderer_version: '99.0.0' },
+  })) })
   return failure === 'http_integrity' ? json({ status: 409, error_code: 'workflow_integrity_inconsistent' }, 409)
     : json({ ...fixture.history, metadata: { ...fixture.history.metadata,
       workflow: { ...fixture.history.metadata.workflow, selected: null, stored_best_version_id: null,
@@ -61,14 +64,16 @@ afterEach(() => {
 })
 
 describe('persisted results, quality and privacy', () => {
-  it.each(['findings', 'http_integrity'] as const)('retains revocation across result and parent remounts with cached approval: %s', async failure => {
+  it.each(['findings', 'http_integrity', 'renderer'] as const)('retains revocation across result and parent remounts with cached approval: %s', async failure => {
     const rendered = view(); await tick()
     const client = clients.at(-1)!
     retainResult(client)
     expect(screen.getByRole('button', { name: "Prompt'u Kopyala" })).toBeEnabled()
+    expect(screen.getAllByLabelText('Renderer kimliği')).toHaveLength(2)
     fetcher.mockImplementation((url: string) => Promise.resolve(url.includes('/history/content') ? inconsistentHistory(failure) : json(answer(url))))
     fireEvent.click(screen.getByRole('button', { name: 'Prompt Sürümlerini ve Değerlendirmeleri Yükle' })); await tick()
     expect(screen.queryByLabelText('Seçilen prompt metni')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Renderer kimliği')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Sonuç ve Geçmişi Kapat' })); await tick()
     expect(client.getQueryData(workflowKeys.result(RUN, PARENT))).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Sonuç ve Geçmişi Görüntüle' })); await tick()
@@ -77,6 +82,7 @@ describe('persisted results, quality and privacy', () => {
     rendered.unmount(); await tick()
     view(`?workflow=${RUN}&view=result`, client); await tick()
     expect(screen.queryByLabelText('Seçilen prompt metni')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Renderer kimliği')).not.toBeInTheDocument()
     expect(fetcher.mock.calls.filter(([url]) => String(url).includes('/result'))).toHaveLength(1)
     expect(fetcher.mock.calls.every(([, init]) => init.method === 'GET')).toBe(true)
   })
@@ -208,6 +214,215 @@ describe('persisted results, quality and privacy', () => {
     expect(fetcher.mock.calls.filter(([url]) => String(url).includes('/result'))).toHaveLength(1)
     expect(screen.getByText(/üst sınıra ulaşmadan sonlandı/)).toBeInTheDocument()
   })
+  it.each([
+    ['openai', 'ChatGPT / GPT', 'OpenAIPromptRenderer', '1.0.0', false],
+    ['openai', 'ChatGPT / GPT', 'GenericPromptRenderer', '1.0.0', true],
+    ['generic', 'Universal', 'GenericPromptRenderer', '1.0.0', false],
+    ['anthropic', 'Claude', 'GenericPromptRenderer', '1.0.0', false],
+    ['google', 'Gemini', 'GenericPromptRenderer', '1.0.0', false],
+    ['generic', 'Universal', 'LongRendererIdentity'.repeat(4), '12.34.56+stored', false],
+  ] as const)('shows the exact evaluated identity for %s (%s, %s, %s)', async (target, label, name, version, legacy) => {
+    fixture = resultFixture('qualified', '100.0000', { target_mode: target, renderer_name: name, renderer_version: version })
+    view(); await tick()
+    const selected = screen.getByRole('region', { name: 'Seçilen prompt' })
+    const history = screen.getByRole('region', { name: 'Değerlendirme metadata geçmişi' })
+    for (const region of [selected, history]) {
+      const identity = within(region).getByLabelText('Renderer kimliği')
+      expect(identity).toHaveTextContent(`${label} (${target})`)
+      expect(within(identity).getByText(name, { exact: true }).textContent).toBe(name)
+      expect(within(identity).getByText(version, { exact: true }).textContent).toBe(version)
+    }
+    const note = within(selected).queryByText(/Bu kayıt OpenAI hedefiyle oluşturuldu ancak Generic renderer/)
+    if (legacy) expect(note).toBeInTheDocument()
+    else expect(note).not.toBeInTheDocument()
+    expect(within(selected).getByText(/Critic değerlendirmesi burada gösterilen metnin tam sürümü/)).toBeInTheDocument()
+    fireEvent.click(within(selected).getByRole('button', { name: "Prompt'u Kopyala" })); await tick()
+    expect(clipboard).toHaveBeenCalledExactlyOnceWith(RENDERED)
+  })
+  it.each(['missing', 'ambiguous', 'foreign', 'wrong-round', 'incomplete'] as const)(
+    'withholds the history renderer when the evaluation link is %s', async fault => {
+      const version = fixture.metadata.versions[0]!
+      const versions = {
+        missing: [], ambiguous: [version, version], foreign: [{ ...version, workflow_run_id: OTHER_RUN }],
+        'wrong-round': [{ ...version, evaluation_round: 2 }], incomplete: [version],
+      }[fault]
+      fixture.metadata = { ...fixture.metadata, versions, operations: fault === 'incomplete'
+        ? fixture.metadata.operations.map(operation => operation.id === CRITIC ? { ...operation, status: 'RUNNING' } : operation)
+        : fixture.metadata.operations }
+      view(); await tick()
+      const history = screen.getByRole('region', { name: 'Değerlendirme metadata geçmişi' })
+      expect(within(history).getByText('Bu tur için renderer kimliği doğrulanamadı.')).toBeInTheDocument()
+      expect(within(history).queryByLabelText('Renderer kimliği')).not.toBeInTheDocument()
+      expect(within(history).getByText(`Prompt sürümü: ${VERSION}`)).toBeInTheDocument()
+      expect(readResultIntegrity(clients.at(-1)!, RUN, PARENT).revoked).toBe(true)
+      expect(screen.queryByRole('button', { name: "Prompt'u Kopyala" })).not.toBeInTheDocument()
+    },
+  )
+  it.each(['name', 'version', 'target', 'wrong-evaluation', 'no-critic', 'no-assessment'] as const)(
+    'revokes copy when detailed history conflicts or lacks evaluation evidence (%s)', async fault => {
+      fixture = resultFixture('qualified', '100.0000', {
+        target_mode: 'openai', renderer_name: 'OpenAIPromptRenderer', renderer_version: '1.0.0',
+      })
+      view(); await tick()
+      expect(screen.getByRole('button', { name: "Prompt'u Kopyala" })).toBeEnabled()
+      const candidate = fixture.history.versions[0]!
+      const version = { ...candidate.version, ...(fault === 'name' ? { renderer_name: 'GenericPromptRenderer' }
+        : fault === 'version' ? { renderer_version: '2.0.0' } : fault === 'target' ? { target_mode: 'google' as const } : {}) }
+      fixture.history = { ...fixture.history,
+        source: { ...fixture.history.source!, target_mode: fault === 'target' ? 'google' : 'openai' },
+        metadata: { ...fixture.history.metadata, versions: [version],
+          operations: fault === 'no-critic' ? fixture.history.metadata.operations.filter(row => row.id !== CRITIC) : fixture.history.metadata.operations,
+          evaluations: fault === 'wrong-evaluation' ? [{ ...fixture.result.evaluation!, critic_agent_run_id: CREATOR }] : fixture.history.metadata.evaluations },
+        versions: [{ ...candidate, version }],
+        evaluations: fault === 'no-assessment' ? [] : fixture.history.evaluations,
+      }
+      fireEvent.click(screen.getByRole('button', { name: 'Prompt Sürümlerini ve Değerlendirmeleri Yükle' })); await tick()
+      const client = clients.at(-1)!
+      expect(readResultIntegrity(client, RUN, PARENT).revoked).toBe(true)
+      expect(client.getQueryData(workflowKeys.content(RUN, PARENT))).toBeUndefined()
+      expect(screen.queryByLabelText('Renderer kimliği')).not.toBeInTheDocument()
+      expect(screen.queryByRole('region', { name: 'Prompt Karşılaştırması' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: "Prompt'u Kopyala" })).not.toBeInTheDocument()
+    },
+  )
+  it.each(['foreign-parent', 'wrong-version', 'duplicate-evaluation'] as const)(
+    'blocks copy and repeated recovery with a contradictory current summary (%s)', async fault => {
+      const valid = fixture.metadata
+      const version = valid.versions[0]!, evaluation = valid.evaluations[0]!
+      fixture.metadata = { ...valid,
+        versions: fault === 'foreign-parent' ? [{ ...version, prompt_request_id: OTHER_RUN }] : valid.versions,
+        evaluations: fault === 'wrong-version' ? [{ ...evaluation, prompt_version_id: OTHER_RUN }]
+          : fault === 'duplicate-evaluation' ? [evaluation, evaluation] : valid.evaluations,
+      }
+      view(); await tick()
+      for (let attempt = 0; attempt < 2; attempt++) {
+        fireEvent.click(screen.getByRole('button', { name: 'Sonucu Yenile' })); await tick()
+        expect(readResultIntegrity(clients.at(-1)!, RUN, PARENT).revoked).toBe(true)
+        expect(screen.queryByLabelText('Renderer kimliği')).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: "Prompt'u Kopyala" })).not.toBeInTheDocument()
+      }
+      fixture.metadata = valid
+      fireEvent.click(screen.getByRole('button', { name: 'Geçmiş Özetini Yenile' })); await tick()
+      fireEvent.click(screen.getByRole('button', { name: 'Sonucu Yenile' })); await tick()
+      expect(screen.getByRole('button', { name: "Prompt'u Kopyala" })).toBeEnabled()
+    },
+  )
+  it('withholds a result behind a newer history revision until a bounded manual result read catches up', async () => {
+    const current = fixture.result.workflow
+    fixture.metadata = { ...fixture.metadata, workflow: { ...current, state_revision: current.state_revision + 1 } }
+    view(); await tick()
+    expect(screen.getByText(/Geçmiş özeti sonuçtan daha güncel/)).toBeInTheDocument()
+    expect(screen.queryByLabelText('Renderer kimliği')).not.toBeInTheDocument()
+    expect(readResultIntegrity(clients.at(-1)!, RUN, PARENT).revoked).toBe(false)
+    await tick(20_000)
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('/result'))).toHaveLength(1)
+    fixture.result = { ...fixture.result, workflow: fixture.metadata.workflow }
+    fireEvent.click(screen.getByRole('button', { name: 'Sonucu Yenile' })); await tick()
+    expect(screen.getByRole('button', { name: "Prompt'u Kopyala" })).toBeEnabled()
+  })
+  it('latches a rejected result across panel reopening and remount, including during a pending recovery', async () => {
+    const rendered = view(); await tick()
+    const client = clients.at(-1)!, valid = fixture.result
+    expect(screen.getByRole('button', { name: "Prompt'u Kopyala" })).toBeEnabled()
+    fixture.result = { ...valid, candidate: { ...valid.candidate!, version: { ...valid.candidate!.version, renderer_version: '' } } }
+    fireEvent.click(screen.getByRole('button', { name: 'Sonucu Yenile' })); await tick()
+    expect(readResultIntegrity(client, RUN, PARENT).revoked).toBe(true)
+    expect(client.getQueryData(workflowKeys.result(RUN, PARENT))).toEqual(valid)
+    fireEvent.click(screen.getByRole('button', { name: 'Sonuç ve Geçmişi Kapat' })); await tick()
+    fireEvent.click(screen.getByRole('button', { name: 'Sonuç ve Geçmişi Görüntüle' })); await tick()
+    expect(screen.queryByLabelText('Renderer kimliği')).not.toBeInTheDocument()
+    rendered.unmount(); await tick()
+    let complete!: (response: Response) => void
+    fetcher.mockImplementation((url: string) => url.includes('/result')
+      ? new Promise<Response>(resolve => { complete = resolve }) : Promise.resolve(json(answer(url))))
+    view(`?workflow=${RUN}&view=result`, client); await tick()
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('/result'))).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Sonucu Yenile' })); await tick()
+    expect(screen.queryByLabelText('Renderer kimliği')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: "Prompt'u Kopyala" })).not.toBeInTheDocument()
+    expect(readResultIntegrity(client, OTHER_RUN, PARENT).revoked).toBe(false)
+    complete(json(valid)); await tick()
+    expect(readResultIntegrity(client, RUN, PARENT).revoked).toBe(false)
+    expect(screen.getByRole('button', { name: "Prompt'u Kopyala" })).toBeEnabled()
+  })
+  it('revokes cached approval on a renderer conflict until a fresh result agrees with history', async () => {
+    const original = fixture.metadata
+    fixture.metadata = { ...fixture.metadata, versions: fixture.metadata.versions.map(version => ({
+      ...version, renderer_version: '2.0.0',
+    })) }
+    view(); await tick()
+    expect(screen.getByRole('alert')).toHaveTextContent('Kayıtların bütünlüğü doğrulanamadı')
+    expect(screen.queryByLabelText('Renderer kimliği')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Seçilen prompt metni')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: "Prompt'u Kopyala" })).not.toBeInTheDocument()
+    const client = clients.at(-1)!
+    expect(readResultIntegrity(client, RUN, PARENT).revoked).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Sonucu Yenile' })); await tick()
+    expect(readResultIntegrity(client, RUN, PARENT).revoked).toBe(true)
+    fixture.metadata = original
+    fireEvent.click(screen.getByRole('button', { name: 'Geçmiş Özetini Yenile' })); await tick()
+    expect(screen.queryByLabelText('Renderer kimliği')).not.toBeInTheDocument()
+    expect(readResultIntegrity(client, RUN, PARENT).revoked).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Sonucu Yenile' })); await tick()
+    expect(readResultIntegrity(client, RUN, PARENT).revoked).toBe(false)
+    expect(screen.getByRole('button', { name: "Prompt'u Kopyala" })).toBeEnabled()
+  })
+  it.each(['earlier', 'late', 'manual'] as const)('binds comparison versions to backend selection and user choice (%s)', async scenario => {
+    const laterId = 'c0000000-0000-0000-0000-00000000000c'
+    const laterEvaluationId = 'd0000000-0000-0000-0000-00000000000d'
+    const laterCriticId = 'e0000000-0000-0000-0000-00000000000e'
+    const first = fixture.result.candidate!
+    const later = { ...first, version: { ...first.version, id: laterId, version_number: 3, evaluation_round: 2 },
+      rendered_prompt: '  Sonraki tur — örnek\n    return 2\n' }
+    const laterEvaluation = { ...fixture.result.evaluation!, id: laterEvaluationId,
+      prompt_version_id: laterId, critic_agent_run_id: laterCriticId, evaluation_round: 2 }
+    const chooseLater = scenario !== 'earlier'
+    const workflow = { ...fixture.result.workflow, current_round: 2, completed_rounds: 2,
+      stored_best_version_id: chooseLater ? laterId : VERSION,
+      selected: chooseLater ? { ...fixture.result.workflow.selected!, evaluation_id: laterEvaluationId,
+        prompt_version_id: laterId, evaluation_round: 2 } : fixture.result.workflow.selected,
+    }
+    fixture.result = { ...fixture.result, workflow, candidate: chooseLater ? later : first,
+      evaluation: chooseLater ? laterEvaluation : fixture.result.evaluation }
+    fixture.metadata = { ...fixture.metadata, workflow, versions: [later.version, first.version],
+      evaluations: [...fixture.metadata.evaluations, laterEvaluation],
+      operations: [...fixture.metadata.operations, { ...fixture.metadata.operations[1]!, id: laterCriticId, evaluation_round: 2 }],
+    }
+    fixture.history = { ...fixture.history, metadata: fixture.metadata, versions: [later, first],
+      evaluations: [...fixture.history.evaluations, { evaluation_id: laterEvaluationId, assessment: fixture.result.assessment! }] }
+    let release!: (response: Response) => void
+    if (chooseLater) {
+      fixture.history = { ...fixture.history, versions: [first, later] }
+      fetcher.mockImplementation((url: string) => url.includes('/result')
+        ? new Promise<Response>(resolve => { release = resolve }) : Promise.resolve(json(answer(url))))
+    }
+    view(); await tick()
+    const history = screen.getByRole('region', { name: 'Değerlendirme metadata geçmişi' })
+    const rows = within(history).getAllByRole('listitem')
+    for (const [index, id] of [VERSION, laterId].entries()) {
+      expect(within(rows[index]!).getByText(`Prompt sürümü: ${id}`)).toBeInTheDocument()
+      expect(within(rows[index]!).getByLabelText('Renderer kimliği')).toHaveTextContent('GenericPromptRenderer')
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Prompt Sürümlerini ve Değerlendirmeleri Yükle' })); await tick()
+    const comparison = screen.getByRole('region', { name: 'Prompt Karşılaştırması' })
+    expect(within(comparison).getByLabelText('Sağ prompt', { exact: true })).toHaveValue(VERSION)
+    expect(within(comparison).getAllByLabelText('Renderer kimliği')).toHaveLength(1)
+    expect(within(comparison).getByLabelText('Sol prompt metni').textContent).toBe(ORIGINAL)
+    expect(within(comparison).getByLabelText('Sağ prompt metni').textContent).toBe(RENDERED)
+    if (chooseLater) {
+      const right = within(comparison).getByLabelText('Sağ prompt', { exact: true })
+      if (scenario === 'manual') fireEvent.change(right, { target: { value: 'original' } })
+      release(json(fixture.result)); await tick()
+      expect(right).toHaveValue(scenario === 'manual' ? 'original' : laterId)
+      if (scenario === 'manual') {
+        fireEvent.click(screen.getByRole('button', { name: 'Geçmiş İçeriğini Yenile' })); await tick()
+        expect(screen.getByLabelText('Sağ prompt', { exact: true })).toHaveValue('original')
+      }
+      return
+    }
+    fireEvent.change(within(comparison).getByLabelText('Sağ prompt', { exact: true }), { target: { value: laterId } })
+    expect(within(comparison).getByLabelText('Sağ prompt metni').textContent).toBe(later.rendered_prompt)
+  })
   it.each(['qualified', 'not_qualified', 'unassessable'] as const)('uses backend quality %s independently of completion', async quality => {
     fixture = resultFixture(quality, quality === 'unassessable' ? null : '92.123400')
     view(); await tick()
@@ -256,6 +471,7 @@ describe('persisted results, quality and privacy', () => {
     fixture.metadata = { ...fixture.metadata, workflow: fixture.result.workflow }
     view(); await tick()
     expect(screen.queryByLabelText('Seçilen prompt metni')).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Seçilen prompt' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: "Prompt'u Kopyala" })).not.toBeInTheDocument()
     if (status === 'CLARIFICATION_REQUIRED') expect(screen.getByText('Hangi çıktı gerekiyor?')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Prompt Sürümlerini ve Değerlendirmeleri Yükle' })).toBeEnabled()
@@ -289,6 +505,7 @@ describe('persisted results, quality and privacy', () => {
     expect(screen.getByText('Henüz kayıtlı tamamlanmış değerlendirme yok.')).toBeInTheDocument()
     expect(screen.getByText(/Bunlar tamamlanmış değerlendirme turu sayılmaz/)).toBeInTheDocument()
     expect(screen.queryByText(/Tur 2 · Kayıtlı değerlendirme/)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Renderer kimliği')).not.toBeInTheDocument()
   })
   it('refreshes an older active metadata snapshot once when a verified terminal result arrives', async () => {
     const earlier = { ...fixture.metadata, workflow: { ...fixture.result.workflow, status: 'GENERATING', state_revision: 1 },
@@ -339,7 +556,7 @@ describe('persisted results, quality and privacy', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Prompt Sürümlerini ve Değerlendirmeleri Yükle' })); await tick()
     expect(screen.queryByRole('button', { name: "Prompt'u Kopyala" })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Seçilen prompt metni')).not.toBeInTheDocument()
-    expect(screen.getByText('Tur 1 · Kayıtlı değerlendirme')).toBeInTheDocument()
+    expect(screen.getByText('Tur 1 · Kayıtlı değerlendirme (doğrulanmadı)')).toBeInTheDocument()
     expect(clipboard).not.toHaveBeenCalled()
     await tick(20_000)
     expect(screen.queryByRole('button', { name: "Prompt'u Kopyala" })).not.toBeInTheDocument()
@@ -385,7 +602,8 @@ describe('persisted results, quality and privacy', () => {
     fetcher.mockImplementation((url: string) => Promise.resolve(json(url.includes('/result') ? response
       : url.includes('/history') ? fixture.metadata : fixture.metadata.workflow)))
     view(); await tick()
-    expect(screen.getByRole('alert')).toHaveTextContent('geçersiz iş akışı yanıtı')
+    expect(screen.getByRole('alert')).toHaveTextContent(fault === 'integrity'
+      ? 'Kayıtların bütünlüğü doğrulanamadı' : 'geçersiz iş akışı yanıtı')
     expect(screen.queryByLabelText('Seçilen prompt metni')).not.toBeInTheDocument()
     expect(clipboard).not.toHaveBeenCalled()
   })
@@ -406,7 +624,7 @@ describe('persisted results, quality and privacy', () => {
     view(); await tick()
     fetcher.mockImplementation((url: string) => url.includes('/history?') ? Promise.reject(new Error(PRIVATE)) : Promise.resolve(json(answer(url))))
     fireEvent.click(screen.getByRole('button', { name: 'Geçmiş Özetini Yenile' })); await tick()
-    expect(screen.getByText('Tur 1 · Kayıtlı değerlendirme')).toBeInTheDocument()
+    expect(screen.getByText('Tur 1 · Kayıtlı değerlendirme (doğrulanmadı)')).toBeInTheDocument()
     expect(screen.getByText('Kayıtlı yürütme: Yürütme tamamlandı.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: "Prompt'u Kopyala" })).not.toBeInTheDocument()
     expect(screen.getByText('Geçmiş özeti okunamadı')).toBeInTheDocument()
@@ -435,7 +653,8 @@ describe('persisted results, quality and privacy', () => {
     fixture.history = { ...fixture.history, metadata: { ...fixture.history.metadata,
       evaluations: fixture.history.metadata.evaluations.map(v => ({ ...v, evaluation_round: 2 })) } }
     view(); await tick(); fireEvent.click(screen.getByRole('button', { name: 'Prompt Sürümlerini ve Değerlendirmeleri Yükle' })); await tick()
-    expect(screen.getByRole('alert')).toHaveTextContent('Geçmiş içeriği okunamadı')
+    expect(screen.getByRole('alert')).toHaveTextContent('Prompt gösterimi ve kopyalama kapalı')
+    expect(screen.queryByRole('button', { name: "Prompt'u Kopyala" })).not.toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Geçmiş Critic değerlendirmeleri' })).not.toBeInTheDocument()
   })
   it('cancels a content read when closed, without leaking a late response or a false failure', async () => {
