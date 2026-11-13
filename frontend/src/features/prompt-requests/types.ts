@@ -103,25 +103,25 @@ export const TARGET_AI_FAMILY_OPTIONS: readonly TargetAiFamilyOption[] = [
     value: 'generic',
     label: 'Universal',
     badge: 'generic',
-    description: 'Modelden bağımsız, tüm üretken yapay zekâ araçlarıyla uyumlu yapılandırılmış format.',
+    description: 'Promptu biçimlendirmek için GenericPromptRenderer kullanılır.',
   },
   {
     value: 'openai',
     label: 'ChatGPT / GPT',
     badge: 'openai',
-    description: 'Hiyerarşik Markdown başlıkları ve net görev sınırlarıyla GPT ailesine uygun yapı.',
+    description: 'Yeni iş akışları OpenAIPromptRenderer kullanır. Bu renderer, gerektiğinde dolu bölümlere başlık ekler.',
   },
   {
     value: 'anthropic',
     label: 'Claude',
     badge: 'anthropic',
-    description: 'Açık bölüm sınırları ve XML benzeri bağlam ayrımıyla Claude modellerine uyumlu yapı.',
+    description: 'Şu anda GenericPromptRenderer kullanılır. Claude’a özel biçimlendirme planlanıyor.',
   },
   {
     value: 'google',
     label: 'Gemini',
     badge: 'google',
-    description: 'Kısıtlamaları ve yapılandırılmış çıktı beklentilerini öne çıkaran Gemini uyumlu düzen.',
+    description: 'Şu anda GenericPromptRenderer kullanılır. Gemini’ye özel biçimlendirme planlanıyor.',
   },
 ]
 

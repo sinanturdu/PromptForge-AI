@@ -74,6 +74,27 @@ describe('Prompt submission form and backend integration (Milestone 4A)', () => 
     expect(getRecordedPostPayloads()).toHaveLength(0)
   })
 
+  it('describes current renderer support and keeps all four targets keyboard-selectable', async () => {
+    const user = userEvent.setup()
+    renderAppAtRoutes(['/'])
+    const targetGroup = within(screen.getByRole('group', { name: 'Hedef Yapay Zekâ Ailesi' }))
+    const universal = targetGroup.getByRole('radio', { name: 'Universal' })
+    const openai = targetGroup.getByRole('radio', { name: 'ChatGPT / GPT' })
+    const anthropic = targetGroup.getByRole('radio', { name: 'Claude' })
+    const google = targetGroup.getByRole('radio', { name: 'Gemini' })
+    expect(universal).toHaveAccessibleDescription(/GenericPromptRenderer/)
+    expect(openai).toHaveAccessibleDescription(/Yeni iş akışları OpenAIPromptRenderer/)
+    expect(anthropic).toHaveAccessibleDescription(/GenericPromptRenderer.*özel biçimlendirme planlanıyor/)
+    expect(google).toHaveAccessibleDescription(/GenericPromptRenderer.*özel biçimlendirme planlanıyor/)
+    universal.focus()
+    for (const radio of [openai, anthropic, google, universal]) {
+      await user.keyboard('{ArrowRight}')
+      expect(radio).toHaveFocus()
+      expect(radio).toBeChecked()
+    }
+    expect(getRecordedPostPayloads()).toHaveLength(0)
+  })
+
   it('rejects empty and whitespace-only raw prompts without calling the backend API', async () => {
     const user = userEvent.setup()
     renderAppAtRoutes(['/'])

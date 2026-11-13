@@ -122,6 +122,40 @@ fields as if they were rendered text. Missing versions reduce the interface trut
 Staged/unevaluated candidate bodies are not exposed by the public content projection,
 so they are not offered as versions.
 
+## Renderer identity — M6-3A
+
+The selected result shows the stored target family, exact renderer name and renderer
+version next to the evaluated prompt. Each verified evaluation in the history summary
+shows the identity of its linked persisted prompt version. The comparison shows the
+stored identity beside each rendered version and labels the original prompt separately.
+
+The target describes where the user plans to use the prompt. The renderer formats the
+candidate text. The LLM provider performs generation or evaluation. New OpenAI-target
+workflows use `OpenAIPromptRenderer`. Historical OpenAI-target workflows may show
+`GenericPromptRenderer` because that renderer produced the text evaluated at the time.
+Generic, Claude and Gemini targets currently use the Generic renderer.
+
+Only the exact selected text evaluated by the Critic is copied. A different format
+would need its own evaluation. When a version link or renderer identity cannot be
+verified, the summary can retain stored evaluation records for inspection without
+claiming a verified renderer. Detailed history requires a unique version, a linked
+evaluation with its completed Critic operation, and the associated assessment.
+Result, summary and detailed history must agree on shared version ownership,
+renderer identity and evaluation references. Shared rendered text must also match.
+
+A same-revision summary must contain the selected result's version and evaluation.
+An older summary may predate that version. The view can refresh it once through the
+existing bounded read. A newer summary withholds result display and copy until a
+manual result read catches up. Contradictions in shared records revoke approval
+regardless of revision. Typed result-integrity errors also revoke approval for that
+prompt request and workflow across panel reopening. Diagnostic records are marked
+unverified while approval is revoked.
+
+Recovery requires an explicit fresh validated result GET that agrees with current
+history and has no intervening integrity failure. In comparison, an untouched pane
+follows late backend selection when the selected version is available. An explicit
+choice remains selected across content refreshes while its version is available.
+
 ## Query lifetime, errors and privacy
 
 Existing Query keys keep progress, metadata, content and result separate and scoped
