@@ -2,6 +2,7 @@ import { Link, useLocation, useParams } from 'react-router'
 import { ROUTES } from '../app/routes'
 import { ErrorAlert } from '../components/common/ErrorAlert'
 import { OptimizationPanel } from '../features/workflows/components/OptimizationPanel'
+import { sameId } from '../features/workflows/readValidation'
 import { formatPromptTimestamp } from '../features/prompt-requests/formatters'
 import { usePromptRequestQuery } from '../features/prompt-requests/hooks'
 import {
@@ -29,7 +30,7 @@ export function PromptRequestDetailPage() {
       ? navState.fromHistoryPath
       : ROUTES.promptHistory
 
-  const { data: record, error, isLoading, refetch } = usePromptRequestQuery(id)
+  const { data: record, error, isLoading, isFetching, refetch } = usePromptRequestQuery(id)
 
   if (isLoading) {
     return (
@@ -295,7 +296,8 @@ export function PromptRequestDetailPage() {
 
         </div>
       </div>
-      <OptimizationPanel key={record.id} promptRequestId={record.id} />
+      <OptimizationPanel key={record.id} promptRequestId={record.id}
+        source={id && typeof record.id === 'string' && sameId(record.id, id) ? { record, queryId: id, checking: isFetching } : undefined} />
     </div>
   )
 }

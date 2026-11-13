@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useRef } from 'react'
 import { ApiClientError } from '../../lib/api-client'
 import { createPromptRequest, getPromptRequestById, getPromptRequests } from './api'
 import {
@@ -47,17 +48,64 @@ function shouldRetryReadQuery(failureCount: number, error: ApiClientError): bool
   return failureCount < 1
 }
 
-export function useCreatePromptRequestMutation() {
-  const queryClient = useQueryClient()
+const requestFields = new Set(['raw_prompt', 'user_context', 'output_language', 'target_mode', 'task_profile',
+  'prompt_detail_level', 'response_detail_preference', 'reasoning_preference'])
+const uuidPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
 
-  return useMutation<PromptRequestRecord, ApiClientError, PromptRequestCreatePayload>({
-    mutationFn: createPromptRequest,
+function safeFollowupError(error: unknown): ApiClientError {
+  if (!(error instanceof ApiClientError)) {
+    return new ApiClientError({ status: 500, errorCode: 'save_failed', userMessage: 'Kayıt yanıtı doğrulanamadı.' })
+  }
+  // Keep localized field messages, discarding unrecognized server labels and identifiers.
+  return new ApiClientError({ status: error.status, errorCode: 'save_failed', userMessage: error.userMessage,
+    requestId: error.requestId && uuidPattern.test(error.requestId) ? error.requestId : null,
+    validationIssues: error.validationIssues.filter(issue => requestFields.has(issue.field)).map(issue => ({
+      ...issue, code: 'validation_error',
+    })) })
+}
+
+export function useCreatePromptRequestMutation(sourceId?: string) {
+  const queryClient = useQueryClient()
+  const pending = useRef<{ payload: PromptRequestCreatePayload; allowed: () => boolean } | null>(null)
+
+  const mutation = useMutation<string, ApiClientError, void>({
+    mutationFn: async () => {
+      const submission = pending.current
+      pending.current = null
+      if (!submission?.allowed()) {
+        throw new ApiClientError({ status: 400, errorCode: 'save_unavailable',
+          userMessage: 'Bu taslak artık kaydedilemiyor. Doğrulanmış sonucu yeniden açın.' })
+      }
+      try {
+        const { id } = await createPromptRequest(submission.payload, Boolean(sourceId))
+        if (sourceId && (typeof id !== 'string' || !uuidPattern.test(id) ||
+          id.toLowerCase() === sourceId.toLowerCase())) {
+          throw new ApiClientError({ status: 500, errorCode: 'invalid_created_id',
+            userMessage: 'Yeni kayıt kimliği doğrulanamadı.' })
+        }
+        return id
+      } catch (error) {
+        throw sourceId ? safeFollowupError(error) : error
+      }
+    },
+    // Draft data stays with the form until dispatch. Mutation records contain
+    // neither request variables nor the saved record's private text.
+    gcTime: 0,
+    networkMode: sourceId ? 'always' : 'online',
     // Non-idempotent POST requests must never be retried automatically.
     retry: false,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: promptRequestKeys.lists() })
     },
   })
+  return {
+    isPending: mutation.isPending,
+    async save(payload: PromptRequestCreatePayload, allowed: () => boolean) {
+      pending.current = { payload, allowed }
+      try { return await mutation.mutateAsync() }
+      finally { pending.current = null }
+    },
+  }
 }
 
 export function usePromptRequestsQuery(

@@ -1,15 +1,18 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { useSearchParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { ErrorAlert } from '../../../components/common/ErrorAlert'
+import type { FollowupSource } from '../clarificationFollowup'
 import type { WorkflowCursor } from '../contracts'
 import { WorkflowClientError } from '../errors'
 import { workflowListQuery } from '../queries'
 import { validWorkflowId, workflowStatusLabels } from '../progress'
 import { WorkflowProgress } from './WorkflowProgress'
 
-export function WorkflowMonitor({ parentId, defaultWorkflowId, followDefault }: {
+export function WorkflowMonitor({ parentId, defaultWorkflowId, followDefault, source }: {
   readonly parentId: string; readonly defaultWorkflowId?: string | null; readonly followDefault: boolean
+  readonly source?: FollowupSource
 }) {
   const [search, setSearch] = useSearchParams()
   const selected = search.has('workflow') ? search.get('workflow') : followDefault ? defaultWorkflowId : null
@@ -62,8 +65,10 @@ export function WorkflowMonitor({ parentId, defaultWorkflowId, followDefault }: 
     </div> : null}
     {selected && !valid ? <ErrorAlert title="Geçersiz workflow kimliği" message="Bu bağlantı için ilerleme isteği gönderilmedi. Bu prompte bağlı kayıtlı workflow’lardan birini seç." />
       : valid ? <>
-        <button type="button" className={control} aria-expanded={closedId !== selected} onClick={() => setClosedId(closedId === selected ? null : selected!)}>{closedId === selected ? 'İzlemeyi Aç' : 'İzlemeyi Kapat'}</button>
-        {closedId !== selected ? <WorkflowProgress key={`${parentId}:${selected}`} parentId={parentId} workflowId={selected!} /> : <p className="text-sm text-slate-400">İzleme kapalı; otomatik GET gönderilmiyor. Sunucudaki işlem iptal edilmedi.</p>}
+        <button type="button" className={control} aria-expanded={closedId !== selected}
+          onClick={() => flushSync(() => setClosedId(closedId === selected ? null : selected!))}>{closedId === selected ? 'İzlemeyi Aç' : 'İzlemeyi Kapat'}</button>
+        {closedId !== selected ? <WorkflowProgress key={`${parentId}:${selected}`} parentId={parentId} workflowId={selected!}
+          source={source} defaultSelected={!search.has('workflow')} /> : <p className="text-sm text-slate-400">İzleme kapalı; otomatik GET gönderilmiyor. Sunucudaki işlem iptal edilmedi.</p>}
       </> : <p className="text-sm text-slate-400">Başlatılan workflow burada izlenir. Önceden oluşturulmuş bir kaydı seçerek de güvenle görüntüleyebilirsin.</p>}
   </section>
 }

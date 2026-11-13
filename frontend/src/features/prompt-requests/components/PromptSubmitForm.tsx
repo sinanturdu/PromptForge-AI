@@ -1,10 +1,11 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router'
 import { ROUTES } from '../../../app/routes'
 import { ErrorAlert } from '../../../components/common/ErrorAlert'
 import { CharacterCounter } from '../../../components/ui/CharacterCounter'
 import { ApiClientError } from '../../../lib/api-client'
 import { useCreatePromptRequestMutation } from '../hooks'
+import { applyTextareaEdit, type TextSelection } from '../textareaEdits'
 import {
   DEFAULT_PROMPT_FORM_VALUES,
   MAX_RAW_PROMPT_LENGTH,
@@ -27,22 +28,51 @@ import {
 } from '../types'
 import {
   buildCreatePromptRequestPayload,
+  characterCount,
   hasFieldErrors,
   validatePromptFormValues,
   type PromptFormFieldErrors,
 } from '../validation'
 
-export function PromptSubmitForm() {
+export function PromptSubmitForm({ initialValues, sourceId, canSave, onBack, disabled = false }: {
+  readonly initialValues?: PromptFormValues
+  readonly sourceId?: string
+  readonly canSave?: () => boolean
+  readonly onBack?: () => void
+  readonly disabled?: boolean
+} = {}) {
   const navigate = useNavigate()
-  const createMutation = useCreatePromptRequestMutation()
+  const createMutation = useCreatePromptRequestMutation(sourceId)
   const submissionLockRef = useRef(false)
+  const mounted = useRef(false)
+  const rawField = useRef<HTMLTextAreaElement>(null)
+  const contextField = useRef<HTMLTextAreaElement>(null)
+  const textEdit = useRef<{ field: HTMLTextAreaElement; selection: TextSelection } | null>(null)
+  useLayoutEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
+  const reviewing = Boolean(initialValues)
+  useLayoutEffect(() => {
+    if (!reviewing) return
+    function remember(event: Event) {
+      const field = event.currentTarget as HTMLTextAreaElement
+      textEdit.current = { field, selection: { start: field.selectionStart, end: field.selectionEnd } }
+    }
+    const fields = [rawField.current, contextField.current]
+    fields.forEach(field => field?.addEventListener('beforeinput', remember))
+    return () => fields.forEach(field => field?.removeEventListener('beforeinput', remember))
+  }, [reviewing])
 
-  const [values, setValues] = useState<PromptFormValues>(DEFAULT_PROMPT_FORM_VALUES)
+  const [values, setValues] = useState<PromptFormValues>(() => initialValues ?? DEFAULT_PROMPT_FORM_VALUES)
   const [clientErrors, setClientErrors] = useState<PromptFormFieldErrors>({})
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false)
   const [submitError, setSubmitError] = useState<ApiClientError | null>(null)
+  const [saved, setSaved] = useState(false)
 
   const isSubmitting = createMutation.isPending
+  const controlsDisabled = isSubmitting || disabled || saved
+  const draftErrors = initialValues ? validatePromptFormValues(values) : undefined
 
   const backendFieldErrors: PromptFormFieldErrors = {}
   if (submitError) {
@@ -54,10 +84,11 @@ export function PromptSubmitForm() {
     }
   }
 
-  const rawPromptError = clientErrors.raw_prompt ?? backendFieldErrors.raw_prompt
-  const userContextError = clientErrors.user_context ?? backendFieldErrors.user_context
-  const outputLanguageError = clientErrors.output_language ?? backendFieldErrors.output_language
-  const taskProfileError = clientErrors.task_profile ?? backendFieldErrors.task_profile
+  const errors = draftErrors ?? clientErrors
+  const rawPromptError = errors.raw_prompt ?? backendFieldErrors.raw_prompt
+  const userContextError = errors.user_context ?? backendFieldErrors.user_context
+  const outputLanguageError = errors.output_language ?? backendFieldErrors.output_language
+  const taskProfileError = errors.task_profile ?? backendFieldErrors.task_profile
 
   function updateField<K extends keyof PromptFormValues>(key: K, nextValue: PromptFormValues[K]) {
     const updatedValues: PromptFormValues = {
@@ -75,10 +106,18 @@ export function PromptSubmitForm() {
     }
   }
 
+  function updateText(key: 'rawPrompt' | 'userContext', field: HTMLTextAreaElement) {
+    const edit = textEdit.current
+    textEdit.current = null
+    updateField(key, reviewing ? applyTextareaEdit(values[key], field.value, field.selectionStart,
+      edit?.field === field ? edit.selection : undefined) : field.value)
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
-    if (submissionLockRef.current || isSubmitting) {
+    const allowed = () => mounted.current && (canSave?.() ?? true)
+    if (submissionLockRef.current || controlsDisabled || !allowed()) {
       return
     }
 
@@ -94,11 +133,14 @@ export function PromptSubmitForm() {
     submissionLockRef.current = true
     try {
       const payload = buildCreatePromptRequestPayload(values)
-      const createdRecord = await createMutation.mutateAsync(payload)
-      await navigate(ROUTES.promptRequestDetail(createdRecord.id), {
+      const createdId = await createMutation.save(payload, allowed)
+      if (initialValues && mounted.current) setSaved(true)
+      if (!allowed()) return
+      await navigate(ROUTES.promptRequestDetail(createdId), {
         state: { justCreated: true },
       })
     } catch (error) {
+      if (!mounted.current) return
       if (error instanceof ApiClientError) {
         setSubmitError(error)
       } else {
@@ -122,6 +164,7 @@ export function PromptSubmitForm() {
   return (
     <form
       noValidate
+      autoComplete={initialValues ? 'off' : undefined}
       onSubmit={(event) => {
         void handleSubmit(event)
       }}
@@ -137,13 +180,21 @@ export function PromptSubmitForm() {
             Yıldız (*) işaretli alan zorunludur. Diğer tercihleri ihtiyacına göre belirleyebilirsin.
           </p>
         </div>
-
+        {onBack ? <button type="button" disabled={isSubmitting || saved} onClick={() => {
+          if (!submissionLockRef.current) onBack()
+        }} className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 focus-visible:outline-2 focus-visible:outline-indigo-400 disabled:opacity-50">
+          Yanıtlara Dön
+        </button> : null}
       </div>
 
+      {saved ? <p role="status" className="text-sm text-slate-300">Yeni istek kaydedildi. İsteği Prompt Geçmişinde bulabilirsiniz.</p> : null}
       {submitError ? (
         <ErrorAlert
           title="Prompt isteği kaydedilemedi"
-          message={submitError.userMessage}
+          message={initialValues && (submitError.status === 0 || submitError.status >= 500 ||
+            (submitError.status >= 200 && submitError.status < 300))
+            ? 'Kaydın sonucu doğrulanamadı. Tekrar denemeden önce Prompt Geçmişini kontrol edin.'
+            : submitError.userMessage}
           validationIssues={submitError.validationIssues}
           requestId={submitError.requestId}
         />
@@ -157,7 +208,7 @@ export function PromptSubmitForm() {
           </label>
           <CharacterCounter
             id="raw-prompt-counter"
-            currentLength={values.rawPrompt.length}
+            currentLength={characterCount(values.rawPrompt)}
             maxLength={MAX_RAW_PROMPT_LENGTH}
           />
         </div>
@@ -166,13 +217,14 @@ export function PromptSubmitForm() {
           satırlı metin yapısı korunur.
         </p>
         <textarea
+          ref={rawField}
           id="raw-prompt"
           name="raw_prompt"
           rows={8}
           required
           disabled={isSubmitting}
           value={values.rawPrompt}
-          onChange={(event) => updateField('rawPrompt', event.target.value)}
+          onChange={(event) => updateText('rawPrompt', event.currentTarget)}
           aria-invalid={Boolean(rawPromptError)}
           aria-describedby={
             rawPromptError
@@ -201,7 +253,7 @@ export function PromptSubmitForm() {
           </label>
           <CharacterCounter
             id="user-context-counter"
-            currentLength={values.userContext.length}
+            currentLength={characterCount(values.userContext)}
             maxLength={MAX_USER_CONTEXT_LENGTH}
           />
         </div>
@@ -210,12 +262,13 @@ export function PromptSubmitForm() {
           bilgilerini ekleyebilirsiniz.
         </p>
         <textarea
+          ref={contextField}
           id="user-context"
           name="user_context"
           rows={4}
           disabled={isSubmitting}
           value={values.userContext}
-          onChange={(event) => updateField('userContext', event.target.value)}
+          onChange={(event) => updateText('userContext', event.currentTarget)}
           aria-invalid={Boolean(userContextError)}
           aria-describedby={
             userContextError
@@ -306,6 +359,9 @@ export function PromptSubmitForm() {
                 {lang.label}
               </option>
             ))}
+            {initialValues?.outputLanguage && !OUTPUT_LANGUAGE_OPTIONS.some(lang => lang.code === initialValues.outputLanguage)
+              ? <option value={initialValues.outputLanguage}>{initialValues.outputLanguage}</option> : null}
+            {initialValues ? <option value="">Belirtilmedi</option> : null}
           </select>
           <p className="text-xs text-slate-400">
             Prompt için tercih ettiğin çıktı dili kaydına eklenir.
@@ -321,7 +377,7 @@ export function PromptSubmitForm() {
               Görev Profili <span className="text-xs font-normal text-slate-400">(İsteğe Bağlı)</span>
             </label>
             <span className="font-mono text-[11px] text-slate-400">
-              {values.taskProfile.trim().length}/{MAX_TASK_PROFILE_LENGTH}
+              {characterCount(values.taskProfile.trim())}/{MAX_TASK_PROFILE_LENGTH}
             </span>
           </div>
           <input
@@ -503,7 +559,7 @@ export function PromptSubmitForm() {
 
         <button
           type="submit"
-          disabled={isSubmitting}
+          disabled={controlsDisabled || Boolean(draftErrors && hasFieldErrors(draftErrors))}
           className="inline-flex shrink-0 items-center justify-center rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-indigo-950/50 transition-colors hover:bg-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:bg-indigo-600/50 disabled:text-indigo-100/80"
         >
           {isSubmitting ? 'Kaydediliyor...' : 'Prompt İsteğini Kaydet'}
